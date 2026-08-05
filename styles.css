@@ -119,6 +119,29 @@ input, select, textarea { font-family: inherit; }
   text-align: center; padding-top: 16px; border-top: 1px solid var(--border-c);
 }
 
+.pin-input {
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--border-c);
+  border-radius: var(--radius);
+  padding: 18px;
+  color: var(--white);
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: 16px;
+  text-align: center;
+  margin-bottom: 18px;
+  font-family: var(--font-display);
+}
+.pin-input:focus { outline: none; border-color: var(--purple); }
+.login-error {
+  color: var(--red);
+  font-size: 12.5px;
+  text-align: center;
+  margin-bottom: 14px;
+  margin-top: -8px;
+}
+
 /* =========================================================
    APP LAYOUT
 ========================================================= */
@@ -409,6 +432,16 @@ table.data-table {
 }
 .modal h2 { font-size: 20px; margin-bottom: 6px; }
 .modal-sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+
+.receipt-thumb {
+  width: 40px; height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border-c);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+.receipt-thumb:hover { transform: scale(1.15); border-color: var(--purple); }
 
 .form-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .form-row label { font-size: 12px; font-weight: 600; color: var(--muted); }

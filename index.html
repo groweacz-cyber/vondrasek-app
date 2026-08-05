@@ -20,19 +20,37 @@
       <span class="brand-mark">V</span>
       <div><strong>Vondrášek</strong><small>Provozní systém</small></div>
     </div>
-    <h2>Přihlášení</h2>
-    <p class="login-hint">Vyberte roli, pod kterou se chcete přihlásit.</p>
-    <div class="role-buttons">
-      <button class="role-btn" data-role="owner">
-        <span class="role-ic">👔</span>
-        <div><strong>Majitel / dispečer</strong><small>Jarda — plný přístup</small></div>
-      </button>
-      <button class="role-btn" data-role="driver">
-        <span class="role-ic">🚚</span>
-        <div><strong>Řidič</strong><small>Vidí jen svoje jízdy</small></div>
-      </button>
+
+    <!-- Krok 1: výběr role -->
+    <div id="loginStep1">
+      <h2>Přihlášení</h2>
+      <p class="login-hint">Vyberte roli, pod kterou se chcete přihlásit.</p>
+      <div class="role-buttons">
+        <button class="role-btn" data-role="owner">
+          <span class="role-ic">👔</span>
+          <div><strong>Majitel / dispečer</strong><small>Jarda — plný přístup</small></div>
+        </button>
+        <button class="role-btn" id="btnDriverLogin">
+          <span class="role-ic">🚚</span>
+          <div><strong>Řidič</strong><small>Zadej svůj PIN</small></div>
+        </button>
+      </div>
+      <p class="login-note">Ukázková verze — reálné přihlašování s heslem přijde v další fázi.</p>
     </div>
-    <p class="login-note">Ukázková verze — reálné přihlašování s heslem přijde v další fázi.</p>
+
+    <!-- Krok 2: PIN pro řidiče -->
+    <div id="loginStep2" hidden>
+      <h2>👷 Přihlášení řidiče</h2>
+      <p class="login-hint">Zadej svůj čtyřmístný PIN.</p>
+      <div class="form-row">
+        <input type="text" id="pinInput" inputmode="numeric" maxlength="4" placeholder="• • • •" class="pin-input" autocomplete="off">
+      </div>
+      <p class="login-error" id="pinError" hidden>PIN nebyl rozpoznán — zkus to znovu nebo se zeptej majitele.</p>
+      <div class="role-buttons">
+        <button class="btn btn-primary btn-block" id="btnPinConfirm">Přihlásit se</button>
+        <button class="btn btn-ghost btn-block" id="btnPinBack">Zpět</button>
+      </div>
+    </div>
   </div>
 </div>
 

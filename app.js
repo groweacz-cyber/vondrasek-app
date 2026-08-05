@@ -42,8 +42,8 @@ function seedVozidla() {
 }
 function seedRidici() {
   return [
-    { id: 1, jmeno: 'Novák Jan', telefon: '+420 601 111 222', skupina: 'C+E', kartaRidice: '2028-04-10', profesniPrukaz: '2027-06-20' },
-    { id: 2, jmeno: 'Svoboda Martin', telefon: '+420 602 333 444', skupina: 'C', kartaRidice: '2027-11-05', profesniPrukaz: '2028-01-15' }
+    { id: 1, jmeno: 'Novák Jan', telefon: '+420 601 111 222', skupina: 'C+E', kartaRidice: '2028-04-10', profesniPrukaz: '2027-06-20', pin: '1111' },
+    { id: 2, jmeno: 'Svoboda Martin', telefon: '+420 602 333 444', skupina: 'C', kartaRidice: '2027-11-05', profesniPrukaz: '2028-01-15', pin: '2222' }
   ];
 }
 function seedZakazky() {
@@ -56,17 +56,50 @@ function seedZakazky() {
 }
 
 // ---------- LOGIN ----------
-document.querySelectorAll('.role-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    state.role = btn.dataset.role;
-    state.driverName = (state.role === 'driver') ? 'Novák Jan' : null;
-    saveState(); showApp();
-  });
+document.querySelector('[data-role="owner"]').addEventListener('click', () => {
+  state.role = 'owner'; state.driverName = null; state.driverId = null;
+  saveState(); showApp();
 });
+
+document.getElementById('btnDriverLogin').addEventListener('click', () => {
+  document.getElementById('loginStep1').hidden = true;
+  document.getElementById('loginStep2').hidden = false;
+  document.getElementById('pinInput').value = '';
+  document.getElementById('pinError').hidden = true;
+  document.getElementById('pinInput').focus();
+});
+
+document.getElementById('btnPinBack').addEventListener('click', () => {
+  document.getElementById('loginStep2').hidden = true;
+  document.getElementById('loginStep1').hidden = false;
+});
+
+function tryPinLogin() {
+  const pin = document.getElementById('pinInput').value.trim();
+  const ridic = state.ridici.find(r => r.pin === pin);
+  if (!ridic) {
+    document.getElementById('pinError').hidden = false;
+    document.getElementById('pinInput').value = '';
+    document.getElementById('pinInput').focus();
+    return;
+  }
+  state.role = 'driver';
+  state.driverName = ridic.jmeno;
+  state.driverId = ridic.id;
+  saveState(); showApp();
+}
+document.getElementById('btnPinConfirm').addEventListener('click', tryPinLogin);
+document.getElementById('pinInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') tryPinLogin(); });
+document.getElementById('pinInput').addEventListener('input', (e) => {
+  e.target.value = e.target.value.replace(/\D/g, '').slice(0, 4);
+});
+
 document.getElementById('logoutBtn').addEventListener('click', () => {
-  state.role = null; state.driverName = null; saveState();
+  state.role = null; state.driverName = null; state.driverId = null; saveState();
   document.getElementById('app').hidden = true;
   document.getElementById('loginOverlay').style.display = 'flex';
+  document.getElementById('loginStep1').hidden = false;
+  document.getElementById('loginStep2').hidden = true;
 });
 function showApp() {
   document.getElementById('loginOverlay').style.display = 'none';
@@ -420,14 +453,15 @@ function renderTankovani() {
     </div>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Datum</th><th>Vozidlo</th><th>Řidič</th><th>Místo</th><th style="text-align:right">Litry</th><th style="text-align:right">Cena</th><th></th></tr></thead>
+        <thead><tr><th>Datum</th><th>Vozidlo</th><th>Řidič</th><th>Místo</th><th style="text-align:right">Litry</th><th style="text-align:right">Cena</th><th>Účtenka</th><th></th></tr></thead>
         <tbody>
-          ${state.tankovani.length===0 ? `<tr><td colspan="7"><div class="empty-state"><div class="empty-ic">⛽</div>Žádné záznamy.</div></td></tr>` :
+          ${state.tankovani.length===0 ? `<tr><td colspan="8"><div class="empty-state"><div class="empty-ic">⛽</div>Žádné záznamy.</div></td></tr>` :
           state.tankovani.map(t=>`
             <tr>
               <td>${formatDate(t.datum)}</td><td>${t.vozidlo}</td><td>${t.ridic}</td><td>${t.misto}</td>
               <td style="text-align:right">${t.litry} l</td>
               <td style="text-align:right"><b>${(+t.cenaCelkem).toLocaleString('cs-CZ')} Kč</b></td>
+              <td>${t.uctenka ? `<img src="${t.uctenka}" class="receipt-thumb" onclick="showReceipt('${t.uctenka}')" alt="Účtenka">` : '<span style="color:var(--dim);font-size:12px;">—</span>'}</td>
               <td><button class="btn btn-danger btn-sm" onclick="deleteTank(${t.id})">Smazat</button></td>
             </tr>
           `).join('')}
@@ -435,14 +469,31 @@ function renderTankovani() {
       </table>
     </div>
     ${renderTankModal()}
+    ${renderReceiptLightbox()}
   `;
 }
+function renderReceiptLightbox() {
+  return `
+    <div class="modal-overlay" id="receiptLightbox" onclick="closeModal('receiptLightbox')">
+      <div style="max-width:90vw; max-height:90vh;" onclick="event.stopPropagation()">
+        <img id="receiptLightboxImg" src="" style="max-width:100%; max-height:85vh; border-radius:12px; display:block;">
+        <button class="btn btn-ghost btn-block" style="margin-top:12px;" onclick="closeModal('receiptLightbox')">Zavřít</button>
+      </div>
+    </div>
+  `;
+}
+window.showReceipt = function(src) {
+  document.getElementById('receiptLightboxImg').src = src;
+  openModal('receiptLightbox');
+};
+
 function renderTankModal() {
   const dnes = new Date().toISOString().slice(0,10);
+  const isDriver = state.role === 'driver';
   return `
     <div class="modal-overlay" id="tankModal">
       <div class="modal">
-        <h2>Nové tankování</h2><p class="modal-sub">Zápis o tankování.</p>
+        <h2>Nové tankování</h2><p class="modal-sub">Zápis o tankování — klidně vyfoť účtenku.</p>
         <form id="tankForm">
           <div class="form-cols-2">
             <div class="form-row"><label>Datum *</label><input type="date" name="datum" value="${dnes}" required></div>
@@ -450,11 +501,24 @@ function renderTankModal() {
           </div>
           <div class="form-cols-2">
             <div class="form-row"><label>Vozidlo *</label><select name="vozidlo" required>${state.vozidla.map(v=>`<option>${v.spz}</option>`).join('')}</select></div>
-            <div class="form-row"><label>Řidič *</label><select name="ridic" required>${state.ridici.map(r=>`<option>${r.jmeno.split(' ')[0]+' '+r.jmeno.split(' ')[1][0]+'.'}</option>`).join('')}</select></div>
+            <div class="form-row"><label>Řidič *</label>
+              <select name="ridic" required>
+                ${state.ridici.map(r => { const s = r.jmeno.split(' ')[0]+' '+r.jmeno.split(' ')[1][0]+'.'; return `<option ${isDriver && r.id===state.driverId?'selected':''}>${s}</option>`; }).join('')}
+              </select>
+            </div>
           </div>
           <div class="form-cols-2">
             <div class="form-row"><label>Litry *</label><input type="number" name="litry" step="0.01" required></div>
             <div class="form-row"><label>Cena celkem (Kč) *</label><input type="number" name="cenaCelkem" step="0.01" required></div>
+          </div>
+          <div class="form-row">
+            <label>📷 Fotka účtenky (nepovinné)</label>
+            <input type="file" name="uctenka" id="uctenkaInput" accept="image/*" capture="environment">
+            <div id="uctenkaPreviewWrap" style="display:none; margin-top:10px;">
+              <img id="uctenkaPreview" style="max-width:160px; border-radius:8px; border:1px solid var(--border-c);">
+              <button type="button" class="btn btn-ghost btn-sm" id="btnRemoveUctenka" style="margin-left:10px;">Odebrat fotku</button>
+            </div>
+            <span style="font-size:11.5px; color:var(--dim); margin-top:4px; display:block;">Fotka se zmenší, aby zbytečně nezabírala místo. Slouží jako doklad k záznamu.</span>
           </div>
           <div class="modal-actions">
             <button type="button" class="btn btn-ghost" onclick="closeModal('tankModal')">Zrušit</button>
@@ -466,14 +530,61 @@ function renderTankModal() {
   `;
 }
 function bindTankovani() {
-  document.getElementById('btnAddTank').addEventListener('click', () => openModal('tankModal'));
+  let uctenkaBase64 = null;
+
+  document.getElementById('btnAddTank').addEventListener('click', () => {
+    uctenkaBase64 = null;
+    openModal('tankModal');
+  });
+
+  const uctenkaInput = document.getElementById('uctenkaInput');
+  uctenkaInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    resizeImageToBase64(file, 900, 0.72).then(base64 => {
+      uctenkaBase64 = base64;
+      document.getElementById('uctenkaPreview').src = base64;
+      document.getElementById('uctenkaPreviewWrap').style.display = 'block';
+    });
+  });
+  document.getElementById('btnRemoveUctenka').addEventListener('click', () => {
+    uctenkaBase64 = null;
+    uctenkaInput.value = '';
+    document.getElementById('uctenkaPreviewWrap').style.display = 'none';
+  });
+
   document.getElementById('tankForm').addEventListener('submit', (e) => {
     e.preventDefault(); const fd = new FormData(e.target);
-    state.tankovani.unshift({ id: Date.now(), datum: fd.get('datum'), vozidlo: fd.get('vozidlo'), ridic: fd.get('ridic'), misto: fd.get('misto'), litry: +fd.get('litry'), cenaCelkem: +fd.get('cenaCelkem') });
+    state.tankovani.unshift({
+      id: Date.now(), datum: fd.get('datum'), vozidlo: fd.get('vozidlo'), ridic: fd.get('ridic'),
+      misto: fd.get('misto'), litry: +fd.get('litry'), cenaCelkem: +fd.get('cenaCelkem'),
+      uctenka: uctenkaBase64
+    });
     saveState(); closeModal('tankModal'); renderSection('tankovani');
   });
 }
 window.deleteTank = function(id) { if(!confirm('Smazat záznam?')) return; state.tankovani = state.tankovani.filter(t=>t.id!==id); saveState(); renderSection('tankovani'); };
+
+// Zmenší fotku na max šířku a zakóduje do base64 (JPEG), ať nezaplní localStorage
+function resizeImageToBase64(file, maxWidth, quality) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 // ==========================================================
 // VOZIDLA — CRUD + EDITACE
@@ -617,6 +728,11 @@ function renderRidicModal(r={}) {
             <div class="form-row"><label>Karta řidiče platná do *</label><input type="date" name="kartaRidice" required value="${r.kartaRidice||''}"></div>
             <div class="form-row"><label>Profesní průkaz platný do *</label><input type="date" name="profesniPrukaz" required value="${r.profesniPrukaz||''}"></div>
           </div>
+          <div class="form-row">
+            <label>PIN pro přihlášení do appky (4 číslice) *</label>
+            <input type="text" name="pin" inputmode="numeric" maxlength="4" required value="${r.pin||''}" placeholder="např. 1234" style="letter-spacing:4px; font-weight:700;">
+            <span id="ridicPinError" style="display:none; color:var(--red); font-size:12px;">Tento PIN už používá jiný řidič — zvol jiný.</span>
+          </div>
           <div class="modal-actions">
             <button type="button" class="btn btn-ghost" onclick="closeModal('ridicModal')">Zrušit</button>
             <button type="submit" class="btn btn-primary">${r.id?'Uložit změny':'Přidat řidiče'}</button>
@@ -628,10 +744,19 @@ function renderRidicModal(r={}) {
 }
 function bindRidici() {
   document.getElementById('btnAddRidic').addEventListener('click', () => openModal('ridicModal'));
+  const pinField = document.querySelector('#ridicForm [name="pin"]');
+  if (pinField) pinField.addEventListener('input', (e) => { e.target.value = e.target.value.replace(/\D/g,'').slice(0,4); });
+
   document.getElementById('ridicForm').addEventListener('submit', (e) => {
     e.preventDefault(); const fd = new FormData(e.target);
     const editId = fd.get('editId');
-    const data = { jmeno: fd.get('jmeno'), telefon: fd.get('telefon'), skupina: fd.get('skupina'), kartaRidice: fd.get('kartaRidice'), profesniPrukaz: fd.get('profesniPrukaz') };
+    const pin = fd.get('pin');
+    const pinTaken = state.ridici.some(r => r.pin === pin && r.id !== +editId);
+    if (pinTaken) {
+      document.getElementById('ridicPinError').style.display = 'block';
+      return;
+    }
+    const data = { jmeno: fd.get('jmeno'), telefon: fd.get('telefon'), skupina: fd.get('skupina'), kartaRidice: fd.get('kartaRidice'), profesniPrukaz: fd.get('profesniPrukaz'), pin };
     if (editId) {
       const idx = state.ridici.findIndex(r=>r.id===+editId);
       if (idx>=0) state.ridici[idx] = { ...state.ridici[idx], ...data };
