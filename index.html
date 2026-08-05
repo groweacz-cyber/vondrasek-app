@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vondrášek — Provozní systém | Growea</title>
+<meta name="description" content="Provozní systém Autodoprava Vondrášek, s.r.o.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚚</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ===== LOGIN OVERLAY ===== -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <div class="login-brand">
+      <span class="brand-mark">V</span>
+      <div><strong>Vondrášek</strong><small>Provozní systém</small></div>
+    </div>
+    <h2>Přihlášení</h2>
+    <p class="login-hint">Vyberte roli, pod kterou se chcete přihlásit.</p>
+    <div class="role-buttons">
+      <button class="role-btn" data-role="owner">
+        <span class="role-ic">👔</span>
+        <div><strong>Majitel / dispečer</strong><small>Jarda — plný přístup</small></div>
+      </button>
+      <button class="role-btn" data-role="driver">
+        <span class="role-ic">🚚</span>
+        <div><strong>Řidič</strong><small>Vidí jen svoje jízdy</small></div>
+      </button>
+    </div>
+    <p class="login-note">Ukázková verze — reálné přihlašování s heslem přijde v další fázi.</p>
+  </div>
+</div>
+
+<!-- ===== APP ===== -->
+<div class="app" id="app" hidden>
+
+  <!-- ===== SIDEBAR ===== -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <span class="brand-mark">V</span>
+      <div><strong>Vondrášek</strong><small>Provozní systém</small></div>
+    </div>
+
+    <nav class="sidebar-nav">
+
+      <div class="nav-group">
+        <div class="nav-group-title">Přehled</div>
+        <a href="#" class="nav-item active" data-section="dashboard">
+          <span class="ni-ic">📊</span> Dashboard
+        </a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">Provoz</div>
+        <a href="#" class="nav-item" data-section="jizdy">
+          <span class="ni-ic">🛣️</span> Evidence jízd
+        </a>
+        <a href="#" class="nav-item" data-section="tankovani">
+          <span class="ni-ic">⛽</span> Tankování
+        </a>
+        <a href="#" class="nav-item" data-section="vozidla">
+          <span class="ni-ic">🚛</span> Vozidla
+        </a>
+        <a href="#" class="nav-item" data-section="ridici">
+          <span class="ni-ic">👷</span> Řidiči
+        </a>
+        <a href="#" class="nav-item" data-section="zakazky">
+          <span class="ni-ic">📋</span> Zakázky
+        </a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">Marketing (Fáze 1)</div>
+        <a href="#" class="nav-item" data-section="web">
+          <span class="ni-ic">🌐</span> Web
+        </a>
+        <a href="#" class="nav-item" data-section="google">
+          <span class="ni-ic">🔍</span> Google
+        </a>
+        <a href="#" class="nav-item" data-section="seznam">
+          <span class="ni-ic">📍</span> Seznam / Sklik
+        </a>
+        <a href="#" class="nav-item" data-section="nabor">
+          <span class="ni-ic">🎯</span> Nábor řidičů
+        </a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">AI vrstva (Fáze 2)</div>
+        <a href="#" class="nav-item" data-section="ai-poptavky">
+          <span class="ni-ic">📥</span> Správce poptávek
+          <span class="nav-tag">Připravujeme</span>
+        </a>
+        <a href="#" class="nav-item" data-section="ai-chatbot">
+          <span class="ni-ic">💬</span> Náborový chatbot
+          <span class="nav-tag">Připravujeme</span>
+        </a>
+        <a href="#" class="nav-item" data-section="ai-marketing">
+          <span class="ni-ic">🤖</span> Marketing pomocník
+          <span class="nav-tag">Připravujeme</span>
+        </a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">Automatizace (Fáze 3)</div>
+        <a href="#" class="nav-item" data-section="dispecink">
+          <span class="ni-ic">🧭</span> AI dispečink
+          <span class="nav-tag future">2027</span>
+        </a>
+        <a href="#" class="nav-item" data-section="kalkulace">
+          <span class="ni-ic">🧮</span> Automatické kalkulace
+          <span class="nav-tag future">2027</span>
+        </a>
+        <a href="#" class="nav-item" data-section="whatsapp">
+          <span class="ni-ic">📱</span> WhatsApp asistent
+          <span class="nav-tag future">2027</span>
+        </a>
+        <a href="#" class="nav-item" data-section="hlas">
+          <span class="ni-ic">🎙️</span> Hlasový asistent
+          <span class="nav-tag future">2027</span>
+        </a>
+        <a href="#" class="nav-item" data-section="integrace">
+          <span class="ni-ic">🔗</span> Napojení na systémy
+          <span class="nav-tag future">2027</span>
+        </a>
+        <a href="#" class="nav-item" data-section="reporty-ai">
+          <span class="ni-ic">📈</span> Prediktivní reporty
+          <span class="nav-tag future">2027</span>
+        </a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">Reporty a export</div>
+        <a href="#" class="nav-item" data-section="reporty">
+          <span class="ni-ic">📊</span> Reporty
+        </a>
+        <a href="#" class="nav-item" data-section="fakturace">
+          <span class="ni-ic">🧾</span> Podklady k fakturaci
+        </a>
+      </div>
+
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-box" id="userBox">
+        <span class="user-ic" id="userIc">👔</span>
+        <div><strong id="userName">Majitel</strong><small id="userRole">Plný přístup</small></div>
+      </div>
+      <button class="logout-btn" id="logoutBtn">Odhlásit</button>
+    </div>
+  </aside>
+
+  <!-- ===== MAIN ===== -->
+  <main class="main">
+    <header class="topbar">
+      <button class="menu-toggle" id="menuToggle" aria-label="Menu">☰</button>
+      <div class="topbar-title" id="topbarTitle">Dashboard</div>
+      <div class="topbar-actions">
+        <span class="topbar-badge">Ukázková verze</span>
+      </div>
+    </header>
+
+    <div class="content" id="content">
+      <!-- Sections rendered by JS -->
+    </div>
+  </main>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
