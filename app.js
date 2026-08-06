@@ -473,7 +473,10 @@ function renderTankovani() {
               <td style="text-align:right">${t.litry} l</td>
               <td style="text-align:right"><b>${(+t.cenaCelkem).toLocaleString('cs-CZ')} Kč</b></td>
               <td>${t.uctenka ? `<img src="${t.uctenka}" class="receipt-thumb" onclick="showReceipt('${t.uctenka}')" alt="Účtenka">` : '<span style="color:var(--dim);font-size:12px;">—</span>'}</td>
-              <td><button class="btn btn-danger btn-sm" onclick="deleteTank(${t.id})">Smazat</button></td>
+              <td style="display:flex;gap:6px;">
+                <button class="btn btn-ghost btn-sm" onclick="editTank(${t.id})">Upravit</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteTank(${t.id})">Smazat</button>
+              </td>
             </tr>
           `).join('')}
         </tbody>
@@ -498,77 +501,81 @@ window.showReceipt = function(src) {
   openModal('receiptLightbox');
 };
 
-function renderTankModal() {
+function renderTankModal(t={}) {
   const dnes = new Date().toISOString().slice(0,10);
   const isDriver = state.role === 'driver';
   return `
     <div class="modal-overlay" id="tankModal">
       <div class="modal">
-        <h2>Nové tankování</h2><p class="modal-sub">Zápis o tankování — klidně vyfoť účtenku.</p>
+        <h2>${t.id?'Upravit tankování':'Nové tankování'}</h2><p class="modal-sub">${t.id?'Uprav údaje o tankování.':'Zápis o tankování — klidně vyfoť účtenku.'}</p>
         <form id="tankForm">
+          <input type="hidden" name="editId" value="${t.id||''}">
+          <input type="hidden" name="uctenkaData" id="uctenkaDataField" value="${t.uctenka||''}">
           <div class="form-cols-2">
-            <div class="form-row"><label>Datum *</label><input type="date" name="datum" value="${dnes}" required></div>
-            <div class="form-row"><label>Místo *</label><input type="text" name="misto" required placeholder="např. OMV Praha"></div>
+            <div class="form-row"><label>Datum *</label><input type="date" name="datum" value="${t.datum||dnes}" required></div>
+            <div class="form-row"><label>Místo *</label><input type="text" name="misto" required value="${t.misto||''}" placeholder="např. OMV Praha"></div>
           </div>
           <div class="form-cols-2">
             <div class="form-row"><label>Vozidlo *</label>
               <select name="vozidlo" required>
                 ${state.vozidla.map(v => {
                   const posledni = isDriver ? state.lastVozidloPerDriver[state.driverId] : null;
-                  const selected = posledni ? v.spz === posledni : false;
+                  const selected = t.vozidlo ? v.spz === t.vozidlo : (posledni ? v.spz === posledni : false);
                   return `<option ${selected?'selected':''}>${v.spz}</option>`;
                 }).join('')}
               </select>
-              ${isDriver && state.lastVozidloPerDriver[state.driverId] ? '<span style="font-size:11px;color:var(--purple-light);">Předvyplněno podle posledního tankování</span>' : ''}
+              ${!t.id && isDriver && state.lastVozidloPerDriver[state.driverId] ? '<span style="font-size:11px;color:var(--purple-light);">Předvyplněno podle posledního tankování</span>' : ''}
             </div>
             <div class="form-row"><label>Řidič *</label>
               <select name="ridic" required>
-                ${state.ridici.map(r => { const s = r.jmeno.split(' ')[0]+' '+r.jmeno.split(' ')[1][0]+'.'; return `<option ${isDriver && r.id===state.driverId?'selected':''}>${s}</option>`; }).join('')}
+                ${state.ridici.map(r => {
+                  const s = r.jmeno.split(' ')[0]+' '+r.jmeno.split(' ')[1][0]+'.';
+                  const selected = t.ridic ? t.ridic === s : (isDriver && r.id===state.driverId);
+                  return `<option ${selected?'selected':''}>${s}</option>`;
+                }).join('')}
               </select>
             </div>
           </div>
           <div class="form-cols-2">
-            <div class="form-row"><label>Litry *</label><input type="number" name="litry" step="0.01" required></div>
-            <div class="form-row"><label>Cena celkem (Kč) *</label><input type="number" name="cenaCelkem" step="0.01" required></div>
+            <div class="form-row"><label>Litry *</label><input type="number" name="litry" step="0.01" required value="${t.litry||''}"></div>
+            <div class="form-row"><label>Cena celkem (Kč) *</label><input type="number" name="cenaCelkem" step="0.01" required value="${t.cenaCelkem||''}"></div>
           </div>
           <div class="form-row">
             <label>📷 Fotka účtenky (nepovinné)</label>
-            <input type="file" name="uctenka" id="uctenkaInput" accept="image/*" capture="environment">
-            <div id="uctenkaPreviewWrap" style="display:none; margin-top:10px;">
-              <img id="uctenkaPreview" style="max-width:160px; border-radius:8px; border:1px solid var(--border-c);">
+            <input type="file" name="uctenkaFile" id="uctenkaInput" accept="image/*" capture="environment">
+            <div id="uctenkaPreviewWrap" style="${t.uctenka?'':'display:none;'} margin-top:10px;">
+              <img id="uctenkaPreview" src="${t.uctenka||''}" style="max-width:160px; border-radius:8px; border:1px solid var(--border-c);">
               <button type="button" class="btn btn-ghost btn-sm" id="btnRemoveUctenka" style="margin-left:10px;">Odebrat fotku</button>
             </div>
             <span style="font-size:11.5px; color:var(--dim); margin-top:4px; display:block;">Fotka se zmenší, aby zbytečně nezabírala místo. Slouží jako doklad k záznamu.</span>
           </div>
           <div class="modal-actions">
             <button type="button" class="btn btn-ghost" onclick="closeModal('tankModal')">Zrušit</button>
-            <button type="submit" class="btn btn-primary">Uložit</button>
+            <button type="submit" class="btn btn-primary">${t.id?'Uložit změny':'Uložit'}</button>
           </div>
         </form>
       </div>
     </div>
   `;
 }
-function bindTankovani() {
-  let uctenkaBase64 = null;
 
-  document.getElementById('btnAddTank').addEventListener('click', () => {
-    uctenkaBase64 = null;
-    openModal('tankModal');
-  });
-
+// Připojí posluchače na aktuální (právě vykreslený) tankModal formulář.
+// Voláno vždy po vykreslení nového modalu — DOM uzel je vždy čerstvý, takže nehrozí zdvojení listenerů.
+function wireTankModal() {
   const uctenkaInput = document.getElementById('uctenkaInput');
+  const uctenkaDataField = document.getElementById('uctenkaDataField');
+
   uctenkaInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
     resizeImageToBase64(file, 900, 0.72).then(base64 => {
-      uctenkaBase64 = base64;
+      uctenkaDataField.value = base64;
       document.getElementById('uctenkaPreview').src = base64;
       document.getElementById('uctenkaPreviewWrap').style.display = 'block';
     });
   });
   document.getElementById('btnRemoveUctenka').addEventListener('click', () => {
-    uctenkaBase64 = null;
+    uctenkaDataField.value = '';
     uctenkaInput.value = '';
     document.getElementById('uctenkaPreviewWrap').style.display = 'none';
   });
@@ -576,17 +583,41 @@ function bindTankovani() {
   document.getElementById('tankForm').addEventListener('submit', (e) => {
     e.preventDefault(); const fd = new FormData(e.target);
     const vozidlo = fd.get('vozidlo');
-    state.tankovani.unshift({
-      id: Date.now(), datum: fd.get('datum'), vozidlo, ridic: fd.get('ridic'),
+    const editId = fd.get('editId');
+    const data = {
+      datum: fd.get('datum'), vozidlo, ridic: fd.get('ridic'),
       misto: fd.get('misto'), litry: +fd.get('litry'), cenaCelkem: +fd.get('cenaCelkem'),
-      uctenka: uctenkaBase64
-    });
+      uctenka: fd.get('uctenkaData') || null
+    };
+    if (editId) {
+      const idx = state.tankovani.findIndex(t=>t.id===+editId);
+      if (idx>=0) state.tankovani[idx] = { ...state.tankovani[idx], ...data };
+    } else {
+      state.tankovani.unshift({ id: Date.now(), ...data });
+    }
     if (state.role === 'driver' && state.driverId) {
       state.lastVozidloPerDriver[state.driverId] = vozidlo;
     }
     saveState(); closeModal('tankModal'); renderSection('tankovani');
   });
 }
+
+function bindTankovani() {
+  wireTankModal();
+  document.getElementById('btnAddTank').addEventListener('click', () => {
+    // Nahradí modal čerstvou prázdnou verzí (kdyby předtím byl otevřený s daty k editaci)
+    document.getElementById('content').querySelector('.modal-overlay#tankModal').outerHTML = renderTankModal();
+    wireTankModal();
+    openModal('tankModal');
+  });
+}
+window.editTank = function(id) {
+  const t = state.tankovani.find(t=>t.id===id);
+  if (!t) return;
+  document.getElementById('content').querySelector('.modal-overlay#tankModal').outerHTML = renderTankModal(t);
+  wireTankModal();
+  openModal('tankModal');
+};
 window.deleteTank = function(id) { if(!confirm('Smazat záznam?')) return; state.tankovani = state.tankovani.filter(t=>t.id!==id); saveState(); renderSection('tankovani'); };
 
 // Zmenší fotku na max šířku a zakóduje do base64 (JPEG), ať nezaplní localStorage
