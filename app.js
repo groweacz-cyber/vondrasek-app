@@ -1475,7 +1475,7 @@ window.openMalaDopravaDen = function(iso) {
             </div>
             <div style="flex:1; font-size:12.5px; color:var(--ice);">
               👷 ${eff.ridic || '— bez stálého řidiče —'}
-              ${eff.objizdkaKm>0 ? `<span style="color:var(--amber);"> · +${eff.objizdkaKm} km objížďka</span>` : ''}
+              ${eff.objizdkaKm>0 ? `<span style="color:var(--amber);"> · +${eff.objizdkaKm} km objížďka${cfg.cenovyModel!=='pausal' ? ' (+'+(eff.objizdkaKm*(+cfg.cenaZaKm||0)).toLocaleString('cs-CZ')+' Kč)' : ''}</span>` : ''}
               ${eff.nejelo ? `<span style="color:var(--red);"> · nejelo</span>` : ''}
             </div>
             <button type="button" class="btn btn-ghost btn-sm mala-toggle-edit" data-route="${route}">${maVyjimku?'Upravit':'+ Výjimka'}</button>
@@ -1491,7 +1491,13 @@ window.openMalaDopravaDen = function(iso) {
               </div>
               <div class="form-row" style="margin-bottom:0; width:90px;">
                 <label style="font-size:11px;">Km navíc</label>
-                <input type="number" class="mala-edit-objizdka" data-route="${route}" min="0" step="1" value="${vyjimky[route]&&vyjimky[route].objizdkaKm||''}" placeholder="0">
+                <input type="number" class="mala-edit-objizdka" data-route="${route}" data-cena-km="${cfg.cenaZaKm||0}" data-model="${cfg.cenovyModel}" min="0" step="1" value="${vyjimky[route]&&vyjimky[route].objizdkaKm||''}" placeholder="0">
+              </div>
+              <div style="min-width:90px; padding-bottom:9px;">
+                <span style="font-size:10.5px; color:var(--dim); display:block;">Vícenáklad</span>
+                <span class="mala-objizdka-kc" data-route="${route}" style="font-size:13px; font-weight:700; color:var(--amber);">
+                  ${cfg.cenovyModel==='pausal' ? '— paušál' : (((vyjimky[route]&&vyjimky[route].objizdkaKm)||0) * (+cfg.cenaZaKm||0)).toLocaleString('cs-CZ') + ' Kč'}
+                </span>
               </div>
               <label style="display:flex; align-items:center; gap:5px; font-size:11.5px; cursor:pointer; padding-bottom:8px;">
                 <input type="checkbox" class="mala-edit-nejelo" data-route="${route}" ${vyjimky[route]&&vyjimky[route].nejelo?'checked':''}> Trasa nejela
@@ -1534,6 +1540,9 @@ window.openMalaDopravaDen = function(iso) {
       document.querySelector(`.mala-edit-ridic[data-route="${route}"]`).value = '';
       document.querySelector(`.mala-edit-objizdka[data-route="${route}"]`).value = '';
       document.querySelector(`.mala-edit-nejelo[data-route="${route}"]`).checked = false;
+      const cfg = state.pnsRouteConfig[route];
+      const kcSpan = document.querySelector(`.mala-objizdka-kc[data-route="${route}"]`);
+      kcSpan.textContent = cfg.cenovyModel==='pausal' ? '— paušál' : '0 Kč';
       updateZiskPreview();
     });
   });
@@ -1595,6 +1604,18 @@ window.openMalaDopravaDen = function(iso) {
     `;
   }
 
+  document.querySelectorAll('.mala-edit-objizdka').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const route = inp.dataset.route;
+      const kcSpan = document.querySelector(`.mala-objizdka-kc[data-route="${route}"]`);
+      if (inp.dataset.model === 'pausal') {
+        kcSpan.textContent = '— paušál';
+      } else {
+        const kc = (+inp.value || 0) * (+inp.dataset.cenaKm || 0);
+        kcSpan.textContent = kc.toLocaleString('cs-CZ') + ' Kč';
+      }
+    });
+  });
   document.querySelectorAll('.mala-edit-ridic, .mala-edit-objizdka').forEach(el => el.addEventListener('input', updateZiskPreview));
   document.querySelectorAll('.mala-edit-nejelo').forEach(el => el.addEventListener('change', updateZiskPreview));
   ['malaNakladyRidic','malaNakladyAuto','malaNakladyOstatni'].forEach(id => {
@@ -1702,13 +1723,14 @@ window.openTrasaDetail = function(route) {
       <div class="metric"><div class="m-label">Příjem</div><div class="m-value" style="color:var(--green);">${prijemCelkem.toLocaleString('cs-CZ')} Kč</div></div>
     </div>
     ${ridicSouhrn ? `<p style="font-size:12px; color:var(--muted); margin-bottom:14px;">👷 Jezdili: ${ridicSouhrn}</p>` : ''}
+    ${kmObjizdkaCelkem > 0 && cfg.cenovyModel !== 'pausal' ? `<p style="font-size:12px; color:var(--amber); margin-bottom:14px;">🛣️ Objížďky tento měsíc: ${kmObjizdkaCelkem} km navíc = ${(kmObjizdkaCelkem*(+cfg.cenaZaKm||0)).toLocaleString('cs-CZ')} Kč navíc</p>` : ''}
 
     ${vyjimkyList.length > 0 ? `
       <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">Dny s výjimkou (${vyjimkyList.length}):</div>
       <table class="data-table">
-        <thead><tr><th>Datum</th><th>Řidič</th><th style="text-align:right">Poznámka</th></tr></thead>
+        <thead><tr><th>Datum</th><th>Řidič</th><th>Km navíc</th><th style="text-align:right">Vícenáklad</th></tr></thead>
         <tbody>
-          ${vyjimkyList.map(o => `<tr><td>${formatDate(o.iso)}</td><td>${o.ridic}</td><td style="text-align:right">${o.nejelo?'<span style="color:var(--red);">Nejelo</span>':(o.extra>0?'+'+o.extra+' km objížďka':'zástup')}</td></tr>`).join('')}
+          ${vyjimkyList.map(o => `<tr><td>${formatDate(o.iso)}</td><td>${o.ridic}</td><td>${o.nejelo?'<span style="color:var(--red);">Nejelo</span>':(o.extra>0?'+'+o.extra+' km':'zástup')}</td><td style="text-align:right">${(!o.nejelo && o.extra>0 && cfg.cenovyModel!=='pausal')?('+'+(o.extra*(+cfg.cenaZaKm||0)).toLocaleString('cs-CZ')+' Kč'):'—'}</td></tr>`).join('')}
         </tbody>
       </table>
     ` : `<p style="font-size:12.5px; color:var(--dim); font-style:italic;">Tento měsíc žádné výjimky — jelo se podle výchozího nastavení.</p>`}
