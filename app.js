@@ -21,12 +21,12 @@ if (!state.lastVozidloPerDriver) state.lastVozidloPerDriver = {};
 
 function seedJizdy() {
   return [
-    { id: 1, datum: '2026-08-01', ridic: 'Novák J.', vozidlo: '3C1 2345', trasaOd: 'Jindřichův Hradec', trasaDo: 'Praha', km: 145, poznamka: 'Palety pro velkoobchod' },
-    { id: 2, datum: '2026-08-02', ridic: 'Svoboda M.', vozidlo: '3C2 5678', trasaOd: 'Praha', trasaDo: 'Mnichov', km: 380, poznamka: 'Mezinárodní přeprava' },
-    { id: 3, datum: '2026-07-28', ridic: 'Novák J.', vozidlo: '3C1 2345', trasaOd: 'Praha', trasaDo: 'Jindřichův Hradec', km: 145, poznamka: 'Zpáteční jízda' },
-    { id: 4, datum: '2026-07-15', ridic: 'Svoboda M.', vozidlo: '3C2 5678', trasaOd: 'Brno', trasaDo: 'Varšava', km: 550, poznamka: 'Celovůz' },
-    { id: 5, datum: '2026-06-20', ridic: 'Novák J.', vozidlo: '3C1 2345', trasaOd: 'Praha', trasaDo: 'Vídeň', km: 295, poznamka: 'Express' },
-    { id: 6, datum: '2026-06-10', ridic: 'Svoboda M.', vozidlo: '3C2 5678', trasaOd: 'Ostrava', trasaDo: 'Praha', km: 370, poznamka: '' }
+    { id: 1, datum: '2026-08-01', ridic: 'Novák J.', vozidlo: '3C1 2345', trasaOd: 'Jindřichův Hradec', trasaDo: 'Praha', km: 145, poznamka: 'Palety pro velkoobchod', financni: { fakturovano: 4500, palivo: 950, mytne: 120, clo: 0, amortizace: 362.5, pojisteni: 100, ridicNaklad: 800, ostatni: 0 } },
+    { id: 2, datum: '2026-08-02', ridic: 'Svoboda M.', vozidlo: '3C2 5678', trasaOd: 'Praha', trasaDo: 'Mnichov', km: 380, poznamka: 'Mezinárodní přeprava', financni: { fakturovano: 15000, palivo: 3200, mytne: 1800, clo: 0, amortizace: 1596, pojisteni: 300, ridicNaklad: 2500, ostatni: 200 } },
+    { id: 3, datum: '2026-07-28', ridic: 'Novák J.', vozidlo: '3C1 2345', trasaOd: 'Praha', trasaDo: 'Jindřichův Hradec', km: 145, poznamka: 'Zpáteční jízda', financni: null },
+    { id: 4, datum: '2026-07-15', ridic: 'Svoboda M.', vozidlo: '3C2 5678', trasaOd: 'Brno', trasaDo: 'Varšava', km: 550, poznamka: 'Celovůz', financni: null },
+    { id: 5, datum: '2026-06-20', ridic: 'Novák J.', vozidlo: '3C1 2345', trasaOd: 'Praha', trasaDo: 'Vídeň', km: 295, poznamka: 'Express', financni: null },
+    { id: 6, datum: '2026-06-10', ridic: 'Svoboda M.', vozidlo: '3C2 5678', trasaOd: 'Ostrava', trasaDo: 'Praha', km: 370, poznamka: '', financni: null }
   ];
 }
 function seedTankovani() {
@@ -37,9 +37,9 @@ function seedTankovani() {
 }
 function seedVozidla() {
   return [
-    { id: 1, spz: '3C1 2345', typ: 'Dodávka', znacka: 'Mercedes Sprinter', stk: '2027-03-15', pojistka: '2027-01-01', poznamka: 'V provozu' },
-    { id: 2, spz: '3C2 5678', typ: 'Kamion', znacka: 'MAN TGX', stk: '2026-11-20', pojistka: '2027-05-10', poznamka: 'V provozu' },
-    { id: 3, spz: '3C3 9012', typ: 'Kamion', znacka: 'Volvo FH', stk: '2026-09-05', pojistka: '2026-12-15', poznamka: 'STK se blíží' }
+    { id: 1, spz: '3C1 2345', typ: 'Dodávka', znacka: 'Mercedes Sprinter', stk: '2027-03-15', pojistka: '2027-01-01', poznamka: 'V provozu', amortizaceKm: 2.5 },
+    { id: 2, spz: '3C2 5678', typ: 'Kamion', znacka: 'MAN TGX', stk: '2026-11-20', pojistka: '2027-05-10', poznamka: 'V provozu', amortizaceKm: 4.2 },
+    { id: 3, spz: '3C3 9012', typ: 'Kamion', znacka: 'Volvo FH', stk: '2026-09-05', pojistka: '2026-12-15', poznamka: 'STK se blíží', amortizaceKm: 4.0 }
   ];
 }
 function seedRidici() {
@@ -349,25 +349,38 @@ function renderJizdy() {
         <button class="btn btn-ghost btn-sm" id="btnExportJizdy">📥 Export CSV</button>
       </div>
       <table class="data-table">
-        <thead><tr><th>Datum</th><th>Řidič</th><th>Vozidlo</th><th>Trasa</th><th style="text-align:right">km</th><th>Poznámka</th>${isOwner?'<th></th>':''}</tr></thead>
+        <thead><tr><th>Datum</th><th>Řidič</th><th>Vozidlo</th><th>Trasa</th><th style="text-align:right">km</th><th>Poznámka</th>${isOwner?'<th style="text-align:right">Zisk</th><th></th>':''}</tr></thead>
         <tbody id="jizdyBody">${renderJizdyRows(list, isOwner)}</tbody>
       </table>
     </div>
     ${renderJizdaModal()}
+    ${renderFinanceModal()}
   `;
 }
 
 function renderJizdyRows(list, isOwner) {
-  if (!list.length) return `<tr><td colspan="${isOwner?7:6}"><div class="empty-state"><div class="empty-ic">🛣️</div>Žádné jízdy.</div></td></tr>`;
+  if (!list.length) return `<tr><td colspan="${isOwner?8:6}"><div class="empty-state"><div class="empty-ic">🛣️</div>Žádné jízdy.</div></td></tr>`;
   return list.map(j => `
     <tr>
       <td>${formatDate(j.datum)}</td><td>${j.ridic}</td><td>${j.vozidlo}</td>
       <td>${j.trasaOd} → ${j.trasaDo}</td>
       <td style="text-align:right">${j.km}</td>
       <td style="color:var(--muted);font-size:12.5px;">${j.poznamka||'—'}</td>
-      ${isOwner?`<td><button class="btn btn-danger btn-sm" onclick="deleteJizda(${j.id})">Smazat</button></td>`:''}
+      ${isOwner?`<td style="text-align:right">${ziskBadge(j.financni)}</td>
+      <td style="display:flex;gap:6px;">
+        <button class="btn btn-ghost btn-sm" onclick="openFinance(${j.id})">💰 Finance</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteJizda(${j.id})">Smazat</button>
+      </td>`:''}
     </tr>
   `).join('');
+}
+
+function ziskBadge(f) {
+  if (!f) return `<span style="color:var(--dim); font-size:12px;">Doplnit</span>`;
+  const naklady = (+f.palivo||0)+(+f.mytne||0)+(+f.clo||0)+(+f.amortizace||0)+(+f.pojisteni||0)+(+f.ridicNaklad||0)+(+f.ostatni||0);
+  const zisk = (+f.fakturovano||0) - naklady;
+  const barva = zisk >= 0 ? 'var(--green)' : 'var(--red)';
+  return `<b style="color:${barva};">${zisk.toLocaleString('cs-CZ')} Kč</b>`;
 }
 
 function bindJizdy() {
@@ -390,13 +403,126 @@ function bindJizdy() {
     e.preventDefault();
     const fd = new FormData(e.target);
     const vozidlo = fd.get('vozidlo');
-    state.jizdy.unshift({ id: Date.now(), datum: fd.get('datum'), ridic: fd.get('ridic'), vozidlo, trasaOd: fd.get('trasaOd'), trasaDo: fd.get('trasaDo'), km: +fd.get('km'), poznamka: fd.get('poznamka') });
+    state.jizdy.unshift({ id: Date.now(), datum: fd.get('datum'), ridic: fd.get('ridic'), vozidlo, trasaOd: fd.get('trasaOd'), trasaDo: fd.get('trasaDo'), km: +fd.get('km'), poznamka: fd.get('poznamka'), financni: null });
     if (state.role === 'driver' && state.driverId) {
       state.lastVozidloPerDriver[state.driverId] = vozidlo;
     }
     saveState(); closeModal('jizdaModal'); renderSection('jizdy');
   });
+
+  if (isOwner) wireFinanceModal();
 }
+
+// ==========================================================
+// FINANCE NA JÍZDU — fakturováno, náklady, čistý zisk
+// ==========================================================
+function renderFinanceModal(j={}, f={}) {
+  return `
+    <div class="modal-overlay" id="financeModal">
+      <div class="modal">
+        <h2>💰 Finance na jízdu</h2>
+        <p class="modal-sub">${j.trasaOd ? `${j.trasaOd} → ${j.trasaDo} · ${formatDate(j.datum)} · ${j.km} km` : 'Vyplň fakturovanou částku a náklady na tuto jízdu.'}</p>
+        <form id="financeForm">
+          <input type="hidden" name="jizdaId" value="${j.id||''}">
+          <div class="form-row">
+            <label>Fakturováno klientovi (Kč) *</label>
+            <input type="number" name="fakturovano" step="1" min="0" required value="${f.fakturovano||''}" style="font-size:18px; font-weight:700;">
+          </div>
+
+          <div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin:18px 0 8px; padding-top:14px; border-top:1px solid var(--border-c);">Náklady na jízdu</div>
+
+          <div class="form-cols-2">
+            <div class="form-row"><label>Palivo (Kč)</label><input type="number" name="palivo" step="1" min="0" value="${f.palivo||''}"></div>
+            <div class="form-row"><label>Mýtné (Kč)</label><input type="number" name="mytne" step="1" min="0" value="${f.mytne||''}"></div>
+          </div>
+          <div class="form-cols-2">
+            <div class="form-row"><label>Clo (Kč)</label><input type="number" name="clo" step="1" min="0" value="${f.clo||''}"></div>
+            <div class="form-row">
+              <label>Amortizace (Kč)</label>
+              <div style="display:flex; gap:6px;">
+                <input type="number" name="amortizace" step="1" min="0" value="${f.amortizace||''}" id="amortizaceField">
+                <button type="button" class="btn btn-ghost btn-sm" id="btnAutoAmortizace" style="white-space:nowrap;" title="Spočítat podle km × Kč/km vozidla">Auto</button>
+              </div>
+            </div>
+          </div>
+          <div class="form-cols-2">
+            <div class="form-row"><label>Pojištění (Kč)</label><input type="number" name="pojisteni" step="1" min="0" value="${f.pojisteni||''}"></div>
+            <div class="form-row"><label>Náklad na řidiče (Kč)</label><input type="number" name="ridicNaklad" step="1" min="0" value="${f.ridicNaklad||''}"></div>
+          </div>
+          <div class="form-row"><label>Ostatní poplatky (Kč)</label><input type="number" name="ostatni" step="1" min="0" value="${f.ostatni||''}"></div>
+
+          <div id="ziskPreview" style="margin-top:18px; padding:16px; background:var(--card); border-radius:var(--radius-sm); border:1px solid var(--border-c);"></div>
+
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" onclick="closeModal('financeModal')">Zrušit</button>
+            <button type="submit" class="btn btn-primary">Uložit finance</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function wireFinanceModal() {
+  const form = document.getElementById('financeForm');
+  if (!form) return;
+
+  function updatePreview() {
+    const fd = new FormData(form);
+    const fakturovano = +fd.get('fakturovano') || 0;
+    const naklady = ['palivo','mytne','clo','amortizace','pojisteni','ridicNaklad','ostatni'].reduce((s,k) => s + (+fd.get(k)||0), 0);
+    const zisk = fakturovano - naklady;
+    const marze = fakturovano > 0 ? (zisk/fakturovano*100).toFixed(1) : '0.0';
+    const barva = zisk >= 0 ? 'var(--green)' : 'var(--red)';
+    document.getElementById('ziskPreview').innerHTML = `
+      <div style="display:flex; justify-content:space-between; font-size:13px; color:var(--muted); margin-bottom:6px;">
+        <span>Náklady celkem</span><span>${naklady.toLocaleString('cs-CZ')} Kč</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:14px; font-weight:600; color:var(--white);">Čistý zisk</span>
+        <span style="font-size:22px; font-weight:800; color:${barva};">${zisk.toLocaleString('cs-CZ')} Kč</span>
+      </div>
+      <div style="text-align:right; font-size:11.5px; color:var(--dim); margin-top:2px;">marže ${marze} %</div>
+    `;
+  }
+  form.querySelectorAll('input').forEach(inp => inp.addEventListener('input', updatePreview));
+  updatePreview();
+
+  const btnAuto = document.getElementById('btnAutoAmortizace');
+  if (btnAuto) {
+    btnAuto.addEventListener('click', () => {
+      const jizdaId = +form.querySelector('[name="jizdaId"]').value;
+      const j = state.jizdy.find(j=>j.id===jizdaId);
+      if (!j) { alert('Nejprve jízdu ulož, pak lze dopočítat amortizaci.'); return; }
+      const v = state.vozidla.find(v=>v.spz===j.vozidlo);
+      if (!v || !v.amortizaceKm) { alert('U vozidla ' + j.vozidlo + ' není nastavená sazba Kč/km. Nastav ji v sekci Vozidla → Upravit.'); return; }
+      document.getElementById('amortizaceField').value = Math.round(v.amortizaceKm * j.km);
+      updatePreview();
+    });
+  }
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const jizdaId = +fd.get('jizdaId');
+    const financni = {
+      fakturovano: +fd.get('fakturovano')||0, palivo: +fd.get('palivo')||0, mytne: +fd.get('mytne')||0,
+      clo: +fd.get('clo')||0, amortizace: +fd.get('amortizace')||0, pojisteni: +fd.get('pojisteni')||0,
+      ridicNaklad: +fd.get('ridicNaklad')||0, ostatni: +fd.get('ostatni')||0
+    };
+    const idx = state.jizdy.findIndex(j=>j.id===jizdaId);
+    if (idx>=0) state.jizdy[idx].financni = financni;
+    saveState(); closeModal('financeModal'); renderSection('jizdy');
+  });
+}
+
+window.openFinance = function(id) {
+  const j = state.jizdy.find(j=>j.id===id);
+  if (!j) return;
+  document.getElementById('content').querySelector('.modal-overlay#financeModal').outerHTML = renderFinanceModal(j, j.financni || {});
+  wireFinanceModal();
+  openModal('financeModal');
+};
 
 function renderJizdaModal() {
   const dnes = new Date().toISOString().slice(0,10);
@@ -694,6 +820,11 @@ function renderVozidloModal(v={}) {
             <div class="form-row"><label>STK platná do *</label><input type="date" name="stk" required value="${v.stk||''}"></div>
             <div class="form-row"><label>Pojistka platná do *</label><input type="date" name="pojistka" required value="${v.pojistka||''}"></div>
           </div>
+          <div class="form-row">
+            <label>Amortizace (Kč/km)</label>
+            <input type="number" name="amortizaceKm" step="0.1" min="0" value="${v.amortizaceKm||''}" placeholder="např. 3.0">
+            <span style="font-size:11.5px; color:var(--dim); margin-top:4px; display:block;">Odhad opotřebení vozidla na kilometr — použije se pro výpočet zisku na jízdu.</span>
+          </div>
           <div class="form-row"><label>Poznámka</label><input type="text" name="poznamka" value="${v.poznamka||''}" placeholder="např. V provozu"></div>
           <div class="modal-actions">
             <button type="button" class="btn btn-ghost" onclick="closeModal('vozidloModal')">Zrušit</button>
@@ -709,7 +840,7 @@ function bindVozidla() {
   document.getElementById('vozidloForm').addEventListener('submit', (e) => {
     e.preventDefault(); const fd = new FormData(e.target);
     const editId = fd.get('editId');
-    const data = { spz: fd.get('spz'), typ: fd.get('typ'), znacka: fd.get('znacka'), stk: fd.get('stk'), pojistka: fd.get('pojistka'), poznamka: fd.get('poznamka') };
+    const data = { spz: fd.get('spz'), typ: fd.get('typ'), znacka: fd.get('znacka'), stk: fd.get('stk'), pojistka: fd.get('pojistka'), poznamka: fd.get('poznamka'), amortizaceKm: +fd.get('amortizaceKm') || 0 };
     if (editId) {
       const idx = state.vozidla.findIndex(v=>v.id===+editId);
       if (idx>=0) state.vozidla[idx] = { ...state.vozidla[idx], ...data };
@@ -958,8 +1089,35 @@ function renderReporty() {
   const kmPerRidic = {}, kmPerVozidlo = {}, litryPerVozidlo = {};
   state.jizdy.forEach(j => { kmPerRidic[j.ridic] = (kmPerRidic[j.ridic]||0) + (+j.km||0); kmPerVozidlo[j.vozidlo] = (kmPerVozidlo[j.vozidlo]||0) + (+j.km||0); });
   state.tankovani.forEach(t => { litryPerVozidlo[t.vozidlo] = (litryPerVozidlo[t.vozidlo]||0) + (+t.litry||0); });
+
+  // Ziskovost — jen jízdy, kde je finance vyplněné
+  const jizdyFinance = state.jizdy.filter(j => j.financni);
+  let sumFakturovano = 0, sumNaklady = 0;
+  const ziskPerRidic = {};
+  jizdyFinance.forEach(j => {
+    const f = j.financni;
+    const naklady = (+f.palivo||0)+(+f.mytne||0)+(+f.clo||0)+(+f.amortizace||0)+(+f.pojisteni||0)+(+f.ridicNaklad||0)+(+f.ostatni||0);
+    const zisk = (+f.fakturovano||0) - naklady;
+    sumFakturovano += (+f.fakturovano||0);
+    sumNaklady += naklady;
+    ziskPerRidic[j.ridic] = (ziskPerRidic[j.ridic]||0) + zisk;
+  });
+  const sumZisk = sumFakturovano - sumNaklady;
+  const marze = sumFakturovano > 0 ? (sumZisk/sumFakturovano*100).toFixed(1) : '0.0';
+
   return `
     <div class="page-head"><div><h1>📊 Reporty</h1><p>Výkon podle řidičů, vozidel a nákladů.</p></div></div>
+
+    <div class="card-panel" style="margin-bottom:20px;">
+      <h3>💰 Ziskovost</h3>
+      <p class="csub">${jizdyFinance.length} z ${state.jizdy.length} jízd má vyplněné finance. ${state.jizdy.length - jizdyFinance.length > 0 ? `Zbytek doplníš tlačítkem „Finance" u jízdy.` : ''}</p>
+      <div class="metrics" style="margin-bottom:0;">
+        <div class="metric"><div class="m-label">Tržby (fakturováno)</div><div class="m-value">${sumFakturovano.toLocaleString('cs-CZ')} Kč</div></div>
+        <div class="metric"><div class="m-label">Náklady celkem</div><div class="m-value">${sumNaklady.toLocaleString('cs-CZ')} Kč</div></div>
+        <div class="metric"><div class="m-label">Čistý zisk</div><div class="m-value" style="color:${sumZisk>=0?'var(--green)':'var(--red)'};">${sumZisk.toLocaleString('cs-CZ')} Kč</div><div class="m-delta neutral">marže ${marze} %</div></div>
+      </div>
+    </div>
+
     <div class="grid-2">
       <div class="card-panel">
         <h3>Najeté km podle řidiče</h3><p class="csub">Celkový součet.</p>
@@ -974,6 +1132,15 @@ function renderReporty() {
         </tbody></table>
       </div>
     </div>
+
+    ${Object.keys(ziskPerRidic).length > 0 ? `
+    <div class="card-panel" style="margin-top:20px;">
+      <h3>Zisk podle řidiče</h3><p class="csub">Součet čistého zisku z jízd, kde jsou vyplněné finance.</p>
+      <table class="data-table"><thead><tr><th>Řidič</th><th style="text-align:right">Zisk</th></tr></thead><tbody>
+        ${Object.entries(ziskPerRidic).sort((a,b)=>b[1]-a[1]).map(([r,z])=>`<tr><td>${r}</td><td style="text-align:right"><b style="color:${z>=0?'var(--green)':'var(--red)'};">${z.toLocaleString('cs-CZ')} Kč</b></td></tr>`).join('')}
+      </tbody></table>
+    </div>
+    ` : ''}
   `;
 }
 function renderFakturace() {
