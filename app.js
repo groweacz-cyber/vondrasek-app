@@ -866,33 +866,130 @@ window.deleteVozidlo = function(id) { if(!confirm('Smazat vozidlo?')) return; st
 function renderRidici() {
   return `
     <div class="page-head">
-      <div><h1>👷 Řidiči</h1><p>Seznam řidičů, karty a průkazy.</p></div>
+      <div><h1>👷 Řidiči</h1><p>Seznam řidičů, karty, průkazy a jejich výkon.</p></div>
       <div class="page-actions"><button class="btn btn-primary" id="btnAddRidic">+ Nový řidič</button></div>
     </div>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Jméno</th><th>Telefon</th><th>Skupina</th><th>Karta řidiče</th><th>Profesní průkaz</th><th></th></tr></thead>
+        <thead><tr><th>Jméno</th><th>Telefon</th><th>Skupina</th><th style="text-align:right">Jízd</th><th style="text-align:right">km celkem</th><th style="text-align:right">Zisk</th><th>Karty</th><th></th></tr></thead>
         <tbody>
-          ${state.ridici.length===0 ? `<tr><td colspan="6"><div class="empty-state"><div class="empty-ic">👷</div>Žádní řidiči — přidej prvního.</div></td></tr>` :
-          state.ridici.map(r=>`
+          ${state.ridici.length===0 ? `<tr><td colspan="8"><div class="empty-state"><div class="empty-ic">👷</div>Žádní řidiči — přidej prvního.</div></td></tr>` :
+          state.ridici.map(r=>{
+            const stats = ridicStats(r);
+            return `
             <tr>
               <td><b>${r.jmeno}</b></td>
               <td><a href="tel:${r.telefon.replace(/\s/g,'')}" style="color:var(--cyan);">${r.telefon}</a></td>
               <td><span class="badge info">${r.skupina}</span></td>
-              <td>${formatDate(r.kartaRidice)} ${termBadge(r.kartaRidice)}</td>
-              <td>${formatDate(r.profesniPrukaz)} ${termBadge(r.profesniPrukaz)}</td>
+              <td style="text-align:right">${stats.pocetJizd}</td>
+              <td style="text-align:right">${stats.kmCelkem.toLocaleString('cs-CZ')}</td>
+              <td style="text-align:right">${stats.pocetJizdSFinance>0 ? `<b style="color:${stats.zisk>=0?'var(--green)':'var(--red)'};">${stats.zisk.toLocaleString('cs-CZ')} Kč</b>` : '<span style="color:var(--dim);font-size:12px;">—</span>'}</td>
+              <td>${termBadge(r.kartaRidice)||''} ${termBadge(r.profesniPrukaz)||''} ${!termBadge(r.kartaRidice)&&!termBadge(r.profesniPrukaz)?'<span class="badge ok">OK</span>':''}</td>
               <td style="display:flex;gap:6px;">
+                <button class="btn btn-ghost btn-sm" onclick="openRidicDetail(${r.id})">📊 Přehled</button>
                 <button class="btn btn-ghost btn-sm" onclick="editRidic(${r.id})">Upravit</button>
                 <button class="btn btn-danger btn-sm" onclick="deleteRidic(${r.id})">Smazat</button>
               </td>
             </tr>
-          `).join('')}
+          `;}).join('')}
         </tbody>
       </table>
     </div>
     ${renderRidicModal()}
+    ${renderRidicDetailModal()}
   `;
 }
+
+// Spočítá souhrnné statistiky řidiče — jízdy, km, zisk, tankování
+function ridicStats(r) {
+  const shortName = r.jmeno.split(' ')[0]+' '+r.jmeno.split(' ')[1][0]+'.';
+  const jizdy = state.jizdy.filter(j => j.ridic === shortName);
+  const kmCelkem = jizdy.reduce((s,j)=>s+(+j.km||0), 0);
+  const jizdySFinance = jizdy.filter(j => j.financni);
+  const zisk = jizdySFinance.reduce((s,j) => {
+    const f = j.financni;
+    const naklady = (+f.palivo||0)+(+f.mytne||0)+(+f.clo||0)+(+f.amortizace||0)+(+f.pojisteni||0)+(+f.ridicNaklad||0)+(+f.ostatni||0);
+    return s + ((+f.fakturovano||0) - naklady);
+  }, 0);
+  const tankovani = state.tankovani.filter(t => t.ridic === shortName);
+  const litryCelkem = tankovani.reduce((s,t)=>s+(+t.litry||0), 0);
+  const nakladyPHM = tankovani.reduce((s,t)=>s+(+t.cenaCelkem||0), 0);
+  return { shortName, jizdy, pocetJizd: jizdy.length, kmCelkem, pocetJizdSFinance: jizdySFinance.length, zisk, tankovani, litryCelkem, nakladyPHM };
+}
+
+function renderRidicDetailModal() {
+  return `
+    <div class="modal-overlay" id="ridicDetailModal">
+      <div class="modal" style="max-width:720px;" id="ridicDetailContent"></div>
+    </div>
+  `;
+}
+
+window.openRidicDetail = function(id) {
+  const r = state.ridici.find(r=>r.id===id);
+  if (!r) return;
+  const s = ridicStats(r);
+  const speeda = s.kmCelkem>0 ? (s.litryCelkem/s.kmCelkem*100).toFixed(1) : '—';
+
+  document.getElementById('ridicDetailContent').innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
+      <div>
+        <h2 style="margin-bottom:2px;">👷 ${r.jmeno}</h2>
+        <p class="modal-sub" style="margin-bottom:0;">${r.skupina} · <a href="tel:${r.telefon.replace(/\s/g,'')}" style="color:var(--cyan);">${r.telefon}</a></p>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('ridicDetailModal')">✕ Zavřít</button>
+    </div>
+
+    <div style="display:flex; gap:16px; margin:16px 0; flex-wrap:wrap;">
+      <div style="display:flex; align-items:center; gap:8px; font-size:12.5px;">
+        <span>Karta řidiče:</span> <b>${formatDate(r.kartaRidice)}</b> ${termBadge(r.kartaRidice)}
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; font-size:12.5px;">
+        <span>Profesní průkaz:</span> <b>${formatDate(r.profesniPrukaz)}</b> ${termBadge(r.profesniPrukaz)}
+      </div>
+    </div>
+
+    <div class="metrics" style="margin-bottom:20px;">
+      <div class="metric"><div class="m-label">Počet jízd</div><div class="m-value">${s.pocetJizd}</div></div>
+      <div class="metric"><div class="m-label">Najeté km</div><div class="m-value">${s.kmCelkem.toLocaleString('cs-CZ')}</div></div>
+      <div class="metric"><div class="m-label">Čistý zisk</div><div class="m-value" style="color:${s.zisk>=0?'var(--green)':'var(--red)'};">${s.pocetJizdSFinance>0 ? s.zisk.toLocaleString('cs-CZ')+' Kč' : '—'}</div>${s.pocetJizdSFinance < s.pocetJizd ? `<div class="m-delta neutral">${s.pocetJizdSFinance}/${s.pocetJizd} jízd s financemi</div>` : ''}</div>
+      <div class="metric"><div class="m-label">Spotřeba</div><div class="m-value">${speeda}</div><div class="m-delta neutral">l/100 km</div></div>
+    </div>
+
+    <div style="font-size:12px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin-bottom:10px;">Posledních 5 jízd</div>
+    <table class="data-table" style="margin-bottom:20px;">
+      <thead><tr><th>Datum</th><th>Trasa</th><th style="text-align:right">km</th><th style="text-align:right">Zisk</th></tr></thead>
+      <tbody>
+        ${s.jizdy.slice(0,5).map(j => `
+          <tr>
+            <td>${formatDate(j.datum)}</td>
+            <td>${j.trasaOd} → ${j.trasaDo}</td>
+            <td style="text-align:right">${j.km}</td>
+            <td style="text-align:right">${ziskBadge(j.financni)}</td>
+          </tr>
+        `).join('') || `<tr><td colspan="4" class="empty-state">Žádné jízdy</td></tr>`}
+      </tbody>
+    </table>
+
+    <div style="font-size:12px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin-bottom:10px;">Posledních 5 tankování</div>
+    <table class="data-table">
+      <thead><tr><th>Datum</th><th>Vozidlo</th><th>Místo</th><th style="text-align:right">Litry</th><th style="text-align:right">Cena</th></tr></thead>
+      <tbody>
+        ${s.tankovani.slice(0,5).map(t => `
+          <tr>
+            <td>${formatDate(t.datum)}</td>
+            <td>${t.vozidlo}</td>
+            <td>${t.misto}</td>
+            <td style="text-align:right">${t.litry} l</td>
+            <td style="text-align:right"><b>${(+t.cenaCelkem).toLocaleString('cs-CZ')} Kč</b></td>
+          </tr>
+        `).join('') || `<tr><td colspan="5" class="empty-state">Žádné tankování</td></tr>`}
+      </tbody>
+    </table>
+  `;
+  openModal('ridicDetailModal');
+};
+
 function renderRidicModal(r={}) {
   return `
     <div class="modal-overlay" id="ridicModal">
