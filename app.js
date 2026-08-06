@@ -1245,6 +1245,7 @@ function renderMalaDoprava() {
   // Statistika aktuálního zobrazeného měsíce
   const daysInMonth = new Date(year, month+1, 0).getDate();
   let drivingDays = 0, completeDays = 0, partialDays = 0, missedDays = 0;
+  let sumPrijem = 0, sumNaklady = 0, dnySFinance = 0;
   const todayIso = toISO(now);
   for (let d=1; d<=daysInMonth; d++) {
     const iso = toISO(new Date(year, month, d));
@@ -1255,7 +1256,14 @@ function renderMalaDoprava() {
     if (hotovo >= PNS_ROUTES.length) completeDays++;
     else if (hotovo > 0) partialDays++;
     else if (iso < todayIso) missedDays++;
+    if (rec && (rec.prijem || rec.nakladyRidic || rec.nakladyAuto || rec.nakladyOstatni)) {
+      dnySFinance++;
+      sumPrijem += (+rec.prijem||0);
+      sumNaklady += (+rec.nakladyRidic||0) + (+rec.nakladyAuto||0) + (+rec.nakladyOstatni||0);
+    }
   }
+  const sumZisk = sumPrijem - sumNaklady;
+  const marze = sumPrijem > 0 ? (sumZisk/sumPrijem*100).toFixed(1) : '0.0';
 
   return `
     <div class="page-head">
@@ -1267,6 +1275,16 @@ function renderMalaDoprava() {
       <p class="csub">Fixní seznam tras pro PNS, a.s.</p>
       <div style="display:flex; flex-wrap:wrap; gap:8px;">
         ${PNS_ROUTES.map(r => `<span class="badge info" style="font-size:12px; padding:5px 12px;">${r}</span>`).join('')}
+      </div>
+    </div>
+
+    <div class="card-panel" style="margin-bottom:20px;">
+      <h3>💰 Ziskovost — ${monthNames[month]} ${year}</h3>
+      <p class="csub">${dnySFinance} z ${drivingDays} jízdních dnů má vyplněné příjmy/náklady. Doplníš je v detailu dne.</p>
+      <div class="metrics" style="margin-bottom:0;">
+        <div class="metric"><div class="m-label">Příjmy</div><div class="m-value">${sumPrijem.toLocaleString('cs-CZ')} Kč</div></div>
+        <div class="metric"><div class="m-label">Náklady</div><div class="m-value">${sumNaklady.toLocaleString('cs-CZ')} Kč</div></div>
+        <div class="metric"><div class="m-label">Čistý zisk</div><div class="m-value" style="color:${sumZisk>=0?'var(--green)':'var(--red)'};">${sumZisk.toLocaleString('cs-CZ')} Kč</div><div class="m-delta neutral">marže ${marze} %</div></div>
       </div>
     </div>
 
@@ -1327,7 +1345,14 @@ function renderMalaDopravaCalendar(year, month) {
     else if (hotovo > 0) { barva = 'var(--amber)'; bg = 'rgba(245,158,11,0.08)'; }
     else if (iso < todayIso) { barva = 'var(--red)'; bg = 'rgba(239,68,68,0.06)'; }
 
-    cells += `<div class="cal-cell" style="min-height:56px; cursor:pointer; border-color:${barva}; background:${bg}; ${isToday?'box-shadow:0 0 0 2px var(--purple);':''}" onclick="openMalaDopravaDen('${iso}')">
+    let ziskTitle = '';
+    if (rec && (rec.prijem || rec.nakladyRidic || rec.nakladyAuto || rec.nakladyOstatni)) {
+      const naklady = (+rec.nakladyRidic||0)+(+rec.nakladyAuto||0)+(+rec.nakladyOstatni||0);
+      const zisk = (+rec.prijem||0) - naklady;
+      ziskTitle = ` · zisk ${zisk.toLocaleString('cs-CZ')} Kč`;
+    }
+
+    cells += `<div class="cal-cell" style="min-height:56px; cursor:pointer; border-color:${barva}; background:${bg}; ${isToday?'box-shadow:0 0 0 2px var(--purple);':''}" onclick="openMalaDopravaDen('${iso}')" title="${hotovo}/${PNS_ROUTES.length} tras${ziskTitle}">
       <span class="cal-daynum">${d}</span>
       <span class="cal-tag" style="color:${barva};">${hotovo}/${PNS_ROUTES.length}</span>
     </div>`;
@@ -1346,11 +1371,11 @@ function renderMalaDopravaCalendar(year, month) {
 }
 
 function renderMalaDopravaModal() {
-  return `<div class="modal-overlay" id="malaDopravaModal"><div class="modal" style="max-width:480px;" id="malaDopravaContent"></div></div>`;
+  return `<div class="modal-overlay" id="malaDopravaModal"><div class="modal" style="max-width:520px;" id="malaDopravaContent"></div></div>`;
 }
 
 window.openMalaDopravaDen = function(iso) {
-  const rec = state.malaDoprava[iso] || { hotovo: [], ridic: '' };
+  const rec = state.malaDoprava[iso] || { hotovo: [], ridic: '', prijem: '', nakladyRidic: '', nakladyAuto: '', nakladyOstatni: '' };
   const dateObj = new Date(iso);
   const dowNames = ['Neděle','Pondělí','Úterý','Středa','Čtvrtek','Pátek','Sobota'];
 
@@ -1358,7 +1383,7 @@ window.openMalaDopravaDen = function(iso) {
     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px;">
       <div>
         <h2 style="margin-bottom:2px;">📰 ${dowNames[dateObj.getDay()]} ${formatDate(iso)}</h2>
-        <p class="modal-sub" style="margin-bottom:0;">Odškrtni dokončené trasy.</p>
+        <p class="modal-sub" style="margin-bottom:0;">Odškrtni dokončené trasy a doplň finance.</p>
       </div>
       <button class="btn btn-ghost btn-sm" onclick="closeModal('malaDopravaModal')">✕</button>
     </div>
@@ -1380,10 +1405,24 @@ window.openMalaDopravaDen = function(iso) {
       `).join('')}
     </div>
 
-    <div style="display:flex; gap:10px; margin-bottom:16px;">
+    <div style="display:flex; gap:10px; margin-bottom:20px;">
       <button type="button" class="btn btn-ghost btn-sm" id="btnMalaVsechny">Zaškrtnout vše</button>
       <button type="button" class="btn btn-ghost btn-sm" id="btnMalaZadne">Odškrtnout vše</button>
     </div>
+
+    <div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin-bottom:10px; padding-top:14px; border-top:1px solid var(--border-c);">Finance dne</div>
+
+    <div class="form-row">
+      <label>Příjem od PNS (Kč)</label>
+      <input type="number" id="malaPrijem" step="1" min="0" value="${rec.prijem||''}" style="font-size:16px; font-weight:700;">
+    </div>
+    <div class="form-cols-2">
+      <div class="form-row"><label>Náklady na řidiče (Kč)</label><input type="number" id="malaNakladyRidic" step="1" min="0" value="${rec.nakladyRidic||''}"></div>
+      <div class="form-row"><label>Náklady na auto (Kč)</label><input type="number" id="malaNakladyAuto" step="1" min="0" value="${rec.nakladyAuto||''}"></div>
+    </div>
+    <div class="form-row"><label>Ostatní náklady (Kč)</label><input type="number" id="malaNakladyOstatni" step="1" min="0" value="${rec.nakladyOstatni||''}"></div>
+
+    <div id="malaZiskPreview" style="margin:14px 0 4px; padding:14px 16px; background:var(--card); border-radius:var(--radius-sm); border:1px solid var(--border-c);"></div>
 
     <div class="modal-actions">
       <button type="button" class="btn btn-ghost" onclick="closeModal('malaDopravaModal')">Zavřít</button>
@@ -1397,13 +1436,41 @@ window.openMalaDopravaDen = function(iso) {
   document.getElementById('btnMalaZadne').addEventListener('click', () => {
     document.querySelectorAll('.mala-route-cb').forEach(cb => cb.checked = false);
   });
+
+  function updateZiskPreview() {
+    const prijem = +document.getElementById('malaPrijem').value || 0;
+    const naklady = ['malaNakladyRidic','malaNakladyAuto','malaNakladyOstatni'].reduce((s,id) => s + (+document.getElementById(id).value||0), 0);
+    const zisk = prijem - naklady;
+    const marze = prijem > 0 ? (zisk/prijem*100).toFixed(1) : '0.0';
+    const barva = zisk >= 0 ? 'var(--green)' : 'var(--red)';
+    document.getElementById('malaZiskPreview').innerHTML = `
+      <div style="display:flex; justify-content:space-between; font-size:12.5px; color:var(--muted); margin-bottom:5px;">
+        <span>Náklady celkem</span><span>${naklady.toLocaleString('cs-CZ')} Kč</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:13.5px; font-weight:600; color:var(--white);">Čistý zisk</span>
+        <span style="font-size:20px; font-weight:800; color:${barva};">${zisk.toLocaleString('cs-CZ')} Kč</span>
+      </div>
+      <div style="text-align:right; font-size:11px; color:var(--dim); margin-top:2px;">marže ${marze} %</div>
+    `;
+  }
+  ['malaPrijem','malaNakladyRidic','malaNakladyAuto','malaNakladyOstatni'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updateZiskPreview);
+  });
+  updateZiskPreview();
+
   document.getElementById('btnMalaUlozit').addEventListener('click', () => {
     const hotovo = Array.from(document.querySelectorAll('.mala-route-cb:checked')).map(cb => cb.value);
     const ridic = document.getElementById('malaDopravaRidic').value;
-    if (hotovo.length === 0 && !ridic) {
+    const prijem = +document.getElementById('malaPrijem').value || 0;
+    const nakladyRidic = +document.getElementById('malaNakladyRidic').value || 0;
+    const nakladyAuto = +document.getElementById('malaNakladyAuto').value || 0;
+    const nakladyOstatni = +document.getElementById('malaNakladyOstatni').value || 0;
+    const hasFinance = prijem || nakladyRidic || nakladyAuto || nakladyOstatni;
+    if (hotovo.length === 0 && !ridic && !hasFinance) {
       delete state.malaDoprava[iso];
     } else {
-      state.malaDoprava[iso] = { hotovo, ridic };
+      state.malaDoprava[iso] = { hotovo, ridic, prijem, nakladyRidic, nakladyAuto, nakladyOstatni };
     }
     saveState(); closeModal('malaDopravaModal'); renderSection('mala-doprava');
   });
