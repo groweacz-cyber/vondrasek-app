@@ -1361,6 +1361,16 @@ function renderMalaDoprava() {
     </div>
 
     <div class="card-panel" style="margin-bottom:20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <div>
+          <h3 style="margin-bottom:4px;">🛣️ Objížďka na více dní</h3>
+          <p class="csub" style="margin-bottom:0;">Trvá objížďka déle? Zadej rozmezí dat a km jednou — appka to sama zapíše na každý jízdní den v tom období.</p>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btnHromadnaObjizdka">+ Hromadná objížďka</button>
+      </div>
+    </div>
+
+    <div class="card-panel" style="margin-bottom:20px;">
       <h3>💰 Ziskovost — ${monthNames[month]} ${year}</h3>
       <p class="csub">Počítá se automaticky ze všech ${drivingDays} jízdních dnů podle nastavení tras. ${exceptionDays>0?`${exceptionDays} dnů má zapsanou výjimku (objížďka, zástup, nejelo).`:'Zatím žádné výjimky.'}</p>
       <div class="metrics" style="margin-bottom:0;">
@@ -1387,6 +1397,7 @@ function renderMalaDoprava() {
 
     ${renderMalaDopravaModal()}
     ${renderTrasaDetailModal()}
+    ${renderHromadnaObjizdkaModal()}
   `;
 }
 
@@ -1442,6 +1453,130 @@ function renderMalaDopravaCalendar(year, month) {
 
 function renderMalaDopravaModal() {
   return `<div class="modal-overlay" id="malaDopravaModal"><div class="modal" style="max-width:560px;" id="malaDopravaContent"></div></div>`;
+}
+
+// ==========================================================
+// HROMADNÁ OBJÍŽĎKA — zadání km navíc pro rozmezí dat najednou
+// ==========================================================
+function renderHromadnaObjizdkaModal() {
+  const dnes = new Date().toISOString().slice(0,10);
+  return `
+    <div class="modal-overlay" id="hromadnaObjizdkaModal">
+      <div class="modal" style="max-width:520px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
+          <h2 style="margin-bottom:2px;">🛣️ Hromadná objížďka</h2>
+          <button class="btn btn-ghost btn-sm" onclick="closeModal('hromadnaObjizdkaModal')">✕</button>
+        </div>
+        <p class="modal-sub">Zadej km navíc jednou pro celé období — appka je zapíše na každý jízdní den (přeskočí neděle a svátky).</p>
+
+        <div class="form-row">
+          <label>Trasa *</label>
+          <select id="hoTrasa">
+            ${PNS_ROUTES.map(r => `<option value="${r}">${r}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-cols-2">
+          <div class="form-row"><label>Od data *</label><input type="date" id="hoOd" value="${dnes}"></div>
+          <div class="form-row"><label>Do data *</label><input type="date" id="hoDo" value="${dnes}"></div>
+        </div>
+        <div class="form-cols-2">
+          <div class="form-row"><label>Km navíc (na každý den) *</label><input type="number" id="hoKm" min="1" step="1" placeholder="např. 15"></div>
+          <div class="form-row">
+            <label>Řidič po dobu objížďky</label>
+            <select id="hoRidic">
+              <option value="">— ponechat stávající —</option>
+              ${state.ridici.map(r => `<option value="${r.jmeno}">${r.jmeno}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <div id="hoPreview" style="margin:14px 0 4px; padding:14px 16px; background:var(--card); border-radius:var(--radius-sm); border:1px solid var(--border-c); font-size:12.5px; color:var(--muted);">
+          Vyplň trasu, data a km — appka spočítá, kolik to přidá do rozpočtu.
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" onclick="closeModal('hromadnaObjizdkaModal')">Zrušit</button>
+          <button type="button" class="btn btn-primary" id="btnHoUlozit">Zapsat objížďku</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function bindHromadnaObjizdka() {
+  const btn = document.getElementById('btnHromadnaObjizdka');
+  if (!btn) return;
+  btn.addEventListener('click', () => openModal('hromadnaObjizdkaModal'));
+
+  function jizdniDnyVRozmezi(odIso, doIso) {
+    const dny = [];
+    let cur = new Date(odIso);
+    const end = new Date(doIso);
+    while (cur <= end) {
+      const iso = toISO(cur);
+      if (isDrivingDay(iso)) dny.push(iso);
+      cur.setDate(cur.getDate() + 1);
+    }
+    return dny;
+  }
+
+  function updateHoPreview() {
+    const route = document.getElementById('hoTrasa').value;
+    const od = document.getElementById('hoOd').value;
+    const doD = document.getElementById('hoDo').value;
+    const km = +document.getElementById('hoKm').value || 0;
+    const preview = document.getElementById('hoPreview');
+    if (!od || !doD || !km || od > doD) {
+      preview.innerHTML = 'Vyplň trasu, platné rozmezí dat a km — appka spočítá, kolik to přidá do rozpočtu.';
+      return;
+    }
+    const dny = jizdniDnyVRozmezi(od, doD);
+    const cfg = state.pnsRouteConfig[route];
+    let kcCelkem = 0, kcInfo = '';
+    if (cfg.cenovyModel === 'pausal') {
+      kcInfo = 'Trasa má paušál — objížďka neovlivní příjem, ale zapíše se pro přehled km.';
+    } else {
+      kcCelkem = dny.length * km * (+cfg.cenaZaKm || 0);
+      kcInfo = `${dny.length} jízdních dnů × ${km} km × ${cfg.cenaZaKm||0} Kč/km = <b style="color:var(--amber); font-size:15px;">${kcCelkem.toLocaleString('cs-CZ')} Kč navíc</b>`;
+    }
+    preview.innerHTML = `
+      <div style="margin-bottom:6px;">📅 Zapíše se na <b>${dny.length} jízdních dnů</b> (${formatDate(od)} – ${formatDate(doD)})</div>
+      <div>${kcInfo}</div>
+    `;
+  }
+  ['hoTrasa','hoOd','hoDo','hoKm'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updateHoPreview);
+    document.getElementById(id).addEventListener('change', updateHoPreview);
+  });
+
+  document.getElementById('btnHoUlozit').addEventListener('click', () => {
+    const route = document.getElementById('hoTrasa').value;
+    const od = document.getElementById('hoOd').value;
+    const doD = document.getElementById('hoDo').value;
+    const km = +document.getElementById('hoKm').value || 0;
+    const ridicOverride = document.getElementById('hoRidic').value;
+
+    if (!od || !doD || od > doD) { alert('Zadej platné rozmezí dat.'); return; }
+    if (!km || km <= 0) { alert('Zadej počet km navíc.'); return; }
+
+    const dny = jizdniDnyVRozmezi(od, doD);
+    if (dny.length === 0) { alert('V tomto rozmezí není žádný jízdní den (samé neděle/svátky).'); return; }
+
+    dny.forEach(iso => {
+      if (!state.malaDoprava[iso]) state.malaDoprava[iso] = { vyjimky: {}, nakladyRidic:0, nakladyAuto:0, nakladyOstatni:0 };
+      if (!state.malaDoprava[iso].vyjimky) state.malaDoprava[iso].vyjimky = {};
+      const existing = state.malaDoprava[iso].vyjimky[route] || {};
+      state.malaDoprava[iso].vyjimky[route] = {
+        ridic: ridicOverride || existing.ridic || '',
+        objizdkaKm: km,
+        nejelo: existing.nejelo || false
+      };
+    });
+    saveState();
+    closeModal('hromadnaObjizdkaModal');
+    renderSection('mala-doprava');
+    alert(`Hotovo — objížďka ${km} km zapsána na ${dny.length} jízdních dnů u trasy ${route}.`);
+  });
 }
 
 window.openMalaDopravaDen = function(iso) {
@@ -1763,6 +1898,7 @@ window.openTrasaDetail = function(route) {
 function bindMalaDoprava() {
   document.getElementById('btnMesicPred').addEventListener('click', () => { malaDopravaMonthOffset--; renderSection('mala-doprava'); });
   document.getElementById('btnMesicDal').addEventListener('click', () => { malaDopravaMonthOffset++; renderSection('mala-doprava'); });
+  bindHromadnaObjizdka();
 }
 
 
