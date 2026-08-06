@@ -18,6 +18,57 @@ const state = loadState() || {
 function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 function loadState() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; } }
 if (!state.lastVozidloPerDriver) state.lastVozidloPerDriver = {};
+if (!state.malaDoprava) state.malaDoprava = {}; // { 'YYYY-MM-DD': { hotovo: ['20001',...], ridic: 'Novák J.' } }
+
+const PNS_ROUTES = ['20001','20004','20011','20016','20041','20042','20043','20044','20045','20058','20063','20064','20066'];
+
+// ---------- ČESKÉ STÁTNÍ SVÁTKY ----------
+function easterSunday(year) {
+  const a = year % 19, b = Math.floor(year/100), c = year % 100;
+  const d = Math.floor(b/4), e = b % 4, f = Math.floor((b+8)/25);
+  const g = Math.floor((b-f+1)/3), h = (19*a+b-d-g+15) % 30;
+  const i = Math.floor(c/4), k = c % 4, l = (32+2*e+2*i-h-k) % 7;
+  const m = Math.floor((a+11*h+22*l)/451);
+  const month = Math.floor((h+l-7*m+114)/31), day = ((h+l-7*m+114) % 31) + 1;
+  return new Date(year, month-1, day);
+}
+function addDays(date, n) { const d = new Date(date); d.setDate(d.getDate()+n); return d; }
+function toISO(date) { return date.toISOString().slice(0,10); }
+
+function czechHolidays(year) {
+  const easter = easterSunday(year);
+  const holidays = {
+    [`${year}-01-01`]: 'Nový rok',
+    [toISO(addDays(easter,-2))]: 'Velký pátek',
+    [toISO(addDays(easter,1))]: 'Velikonoční pondělí',
+    [`${year}-05-01`]: 'Svátek práce',
+    [`${year}-05-08`]: 'Den vítězství',
+    [`${year}-07-05`]: 'Cyril a Metoděj',
+    [`${year}-07-06`]: 'Jan Hus',
+    [`${year}-09-28`]: 'Den české státnosti',
+    [`${year}-10-28`]: 'Vznik Československa',
+    [`${year}-11-17`]: 'Den boje za svobodu',
+    [`${year}-12-24`]: 'Štědrý den',
+    [`${year}-12-25`]: '1. svátek vánoční',
+    [`${year}-12-26`]: '2. svátek vánoční'
+  };
+  return holidays;
+}
+// Cache svátků podle roku, ať se nepočítá pořád dokola
+const _holidayCache = {};
+function holidayName(iso) {
+  const year = +iso.slice(0,4);
+  if (!_holidayCache[year]) _holidayCache[year] = czechHolidays(year);
+  return _holidayCache[year][iso] || null;
+}
+// Jede se každý den kromě neděle a státních svátků
+function isDrivingDay(iso) {
+  const d = new Date(iso);
+  if (d.getDay() === 0) return false; // neděle
+  if (holidayName(iso)) return false;
+  return true;
+}
+
 
 function seedJizdy() {
   return [
@@ -114,7 +165,7 @@ function showApp() {
   renderSection('dashboard');
 }
 function applyDriverView() {
-  const allowed = ['dashboard', 'jizdy', 'tankovani'];
+  const allowed = ['dashboard', 'jizdy', 'tankovani', 'mala-doprava'];
   document.querySelectorAll('.nav-item').forEach(item => {
     if (!allowed.includes(item.dataset.section)) {
       item.style.opacity = '0.35'; item.style.pointerEvents = 'none';
@@ -152,6 +203,7 @@ const SECTIONS = {
   vozidla:      { title: 'Vozidla', render: renderVozidla, after: bindVozidla },
   ridici:       { title: 'Řidiči', render: renderRidici, after: bindRidici },
   zakazky:      { title: 'Zakázky', render: renderZakazky, after: bindZakazky },
+  'mala-doprava': { title: 'Malá doprava (PNS)', render: renderMalaDoprava, after: bindMalaDoprava },
   web:          { title: 'Web', render: () => cs('Fáze 1','🌐','Web','Sledování výkonu webu, návštěvnosti a získaných poptávek.',['Návštěvnost','Odeslané poptávky','Konverzní míra','Zdroj návštěvníků']) },
   google:       { title: 'Google', render: () => cs('Fáze 1','🔍','Google','Přehled Google Business Profile, Ads kampaní a Search Console.',['Zobrazení v mapách','Recenze','Google Ads výkon','Search Console pozice']) },
   seznam:       { title: 'Seznam / Sklik', render: () => cs('Fáze 1','📍','Seznam / Sklik','Přehled Firmy.cz, Mapy.cz a Sklik kampaní.',['Zobrazení na Firmy.cz','Kliknutí z map','Sklik výkon','Rozpočet a náklady']) },
@@ -1180,8 +1232,191 @@ window.editZakazka = function(id) {
 window.deleteZakazka = function(id) { if(!confirm('Smazat zakázku?')) return; state.zakazky = state.zakazky.filter(z=>z.id!==id); saveState(); renderSection('zakazky'); };
 
 // ==========================================================
-// REPORTY & FAKTURACE
+// MALÁ DOPRAVA — PNS rozvoz tisku
 // ==========================================================
+let malaDopravaMonthOffset = 0;
+
+function renderMalaDoprava() {
+  const now = new Date();
+  const viewDate = new Date(now.getFullYear(), now.getMonth() + malaDopravaMonthOffset, 1);
+  const year = viewDate.getFullYear(), month = viewDate.getMonth();
+  const monthNames = ['Leden','Únor','Březen','Duben','Květen','Červen','Červenec','Srpen','Září','Říjen','Listopad','Prosinec'];
+
+  // Statistika aktuálního zobrazeného měsíce
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  let drivingDays = 0, completeDays = 0, partialDays = 0, missedDays = 0;
+  const todayIso = toISO(now);
+  for (let d=1; d<=daysInMonth; d++) {
+    const iso = toISO(new Date(year, month, d));
+    if (!isDrivingDay(iso)) continue;
+    drivingDays++;
+    const rec = state.malaDoprava[iso];
+    const hotovo = rec ? rec.hotovo.length : 0;
+    if (hotovo >= PNS_ROUTES.length) completeDays++;
+    else if (hotovo > 0) partialDays++;
+    else if (iso < todayIso) missedDays++;
+  }
+
+  return `
+    <div class="page-head">
+      <div><h1>📰 Malá doprava — PNS</h1><p>Rozvoz tisku, ${PNS_ROUTES.length} tras. Jede se každý den kromě neděle a státních svátků.</p></div>
+    </div>
+
+    <div class="card-panel" style="margin-bottom:20px;">
+      <h3>Trasy</h3>
+      <p class="csub">Fixní seznam tras pro PNS, a.s.</p>
+      <div style="display:flex; flex-wrap:wrap; gap:8px;">
+        ${PNS_ROUTES.map(r => `<span class="badge info" style="font-size:12px; padding:5px 12px;">${r}</span>`).join('')}
+      </div>
+    </div>
+
+    <div class="metrics" style="margin-bottom:20px;">
+      <div class="metric"><div class="m-label">Jízdní dny (${monthNames[month]})</div><div class="m-value">${drivingDays}</div></div>
+      <div class="metric"><div class="m-label">Kompletní</div><div class="m-value" style="color:var(--green);">${completeDays}</div></div>
+      <div class="metric"><div class="m-label">Částečné</div><div class="m-value" style="color:var(--amber);">${partialDays}</div></div>
+      <div class="metric"><div class="m-label">Nepotvrzené</div><div class="m-value" style="color:${missedDays>0?'var(--red)':'var(--muted)'};">${missedDays}</div></div>
+    </div>
+
+    <div class="card-panel">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <button class="btn btn-ghost btn-sm" id="btnMesicPred">← Předchozí</button>
+        <h3 style="margin:0;">${monthNames[month]} ${year}</h3>
+        <button class="btn btn-ghost btn-sm" id="btnMesicDal">Další →</button>
+      </div>
+      ${renderMalaDopravaCalendar(year, month)}
+      <div style="display:flex; gap:18px; flex-wrap:wrap; margin-top:16px; padding-top:14px; border-top:1px solid var(--border-c); font-size:11.5px; color:var(--muted);">
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--green);margin-right:5px;"></span>Kompletní (13/13)</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--amber);margin-right:5px;"></span>Částečné</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--red);margin-right:5px;"></span>Nepotvrzeno</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--card);border:1px solid var(--border-c);margin-right:5px;"></span>Nejede se</span>
+      </div>
+    </div>
+
+    ${renderMalaDopravaModal()}
+  `;
+}
+
+function renderMalaDopravaCalendar(year, month) {
+  const dow = ['Po','Út','St','Čt','Pá','So','Ne'];
+  const firstDay = new Date(year, month, 1);
+  const startOffset = (firstDay.getDay() + 6) % 7; // pondělí = 0
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const todayIso = toISO(new Date());
+
+  let cells = '';
+  for (let i=0; i<startOffset; i++) cells += `<div class="cal-cell muted"></div>`;
+
+  for (let d=1; d<=daysInMonth; d++) {
+    const iso = toISO(new Date(year, month, d));
+    const holiday = holidayName(iso);
+    const driving = isDrivingDay(iso);
+    const isToday = iso === todayIso;
+
+    if (!driving) {
+      cells += `<div class="cal-cell muted" style="min-height:56px;" title="${holiday||'Neděle'}">
+        <span class="cal-daynum" style="color:var(--dim);">${d}</span>
+        <span class="cal-tag" style="color:var(--dim);">${holiday||'Ne'}</span>
+      </div>`;
+      continue;
+    }
+
+    const rec = state.malaDoprava[iso];
+    const hotovo = rec ? rec.hotovo.length : 0;
+    let barva = 'var(--border-c)', bg = 'var(--panel)';
+    if (hotovo >= PNS_ROUTES.length) { barva = 'var(--green)'; bg = 'rgba(16,185,129,0.08)'; }
+    else if (hotovo > 0) { barva = 'var(--amber)'; bg = 'rgba(245,158,11,0.08)'; }
+    else if (iso < todayIso) { barva = 'var(--red)'; bg = 'rgba(239,68,68,0.06)'; }
+
+    cells += `<div class="cal-cell" style="min-height:56px; cursor:pointer; border-color:${barva}; background:${bg}; ${isToday?'box-shadow:0 0 0 2px var(--purple);':''}" onclick="openMalaDopravaDen('${iso}')">
+      <span class="cal-daynum">${d}</span>
+      <span class="cal-tag" style="color:${barva};">${hotovo}/${PNS_ROUTES.length}</span>
+    </div>`;
+  }
+
+  const totalCells = startOffset + daysInMonth;
+  const trailing = (7 - (totalCells % 7)) % 7;
+  for (let i=0; i<trailing; i++) cells += `<div class="cal-cell muted"></div>`;
+
+  return `
+    <div class="cal-grid">
+      ${dow.map(d=>`<div class="cal-dow">${d}</div>`).join('')}
+      ${cells}
+    </div>
+  `;
+}
+
+function renderMalaDopravaModal() {
+  return `<div class="modal-overlay" id="malaDopravaModal"><div class="modal" style="max-width:480px;" id="malaDopravaContent"></div></div>`;
+}
+
+window.openMalaDopravaDen = function(iso) {
+  const rec = state.malaDoprava[iso] || { hotovo: [], ridic: '' };
+  const dateObj = new Date(iso);
+  const dowNames = ['Neděle','Pondělí','Úterý','Středa','Čtvrtek','Pátek','Sobota'];
+
+  document.getElementById('malaDopravaContent').innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px;">
+      <div>
+        <h2 style="margin-bottom:2px;">📰 ${dowNames[dateObj.getDay()]} ${formatDate(iso)}</h2>
+        <p class="modal-sub" style="margin-bottom:0;">Odškrtni dokončené trasy.</p>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('malaDopravaModal')">✕</button>
+    </div>
+
+    <div class="form-row">
+      <label>Řidič</label>
+      <select id="malaDopravaRidic">
+        <option value="">— nevybráno —</option>
+        ${state.ridici.map(r => `<option value="${r.jmeno}" ${rec.ridic===r.jmeno?'selected':''}>${r.jmeno}</option>`).join('')}
+      </select>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:16px 0;">
+      ${PNS_ROUTES.map(route => `
+        <label style="display:flex; align-items:center; gap:8px; background:var(--card); padding:10px 12px; border-radius:8px; cursor:pointer; border:1px solid var(--border-c);">
+          <input type="checkbox" class="mala-route-cb" value="${route}" ${rec.hotovo.includes(route)?'checked':''} style="width:16px;height:16px;">
+          <span style="font-weight:600;">${route}</span>
+        </label>
+      `).join('')}
+    </div>
+
+    <div style="display:flex; gap:10px; margin-bottom:16px;">
+      <button type="button" class="btn btn-ghost btn-sm" id="btnMalaVsechny">Zaškrtnout vše</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="btnMalaZadne">Odškrtnout vše</button>
+    </div>
+
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" onclick="closeModal('malaDopravaModal')">Zavřít</button>
+      <button type="button" class="btn btn-primary" id="btnMalaUlozit">Uložit</button>
+    </div>
+  `;
+
+  document.getElementById('btnMalaVsechny').addEventListener('click', () => {
+    document.querySelectorAll('.mala-route-cb').forEach(cb => cb.checked = true);
+  });
+  document.getElementById('btnMalaZadne').addEventListener('click', () => {
+    document.querySelectorAll('.mala-route-cb').forEach(cb => cb.checked = false);
+  });
+  document.getElementById('btnMalaUlozit').addEventListener('click', () => {
+    const hotovo = Array.from(document.querySelectorAll('.mala-route-cb:checked')).map(cb => cb.value);
+    const ridic = document.getElementById('malaDopravaRidic').value;
+    if (hotovo.length === 0 && !ridic) {
+      delete state.malaDoprava[iso];
+    } else {
+      state.malaDoprava[iso] = { hotovo, ridic };
+    }
+    saveState(); closeModal('malaDopravaModal'); renderSection('mala-doprava');
+  });
+
+  openModal('malaDopravaModal');
+};
+
+function bindMalaDoprava() {
+  document.getElementById('btnMesicPred').addEventListener('click', () => { malaDopravaMonthOffset--; renderSection('mala-doprava'); });
+  document.getElementById('btnMesicDal').addEventListener('click', () => { malaDopravaMonthOffset++; renderSection('mala-doprava'); });
+}
+
+
 function renderReporty() {
   const kmPerRidic = {}, kmPerVozidlo = {}, litryPerVozidlo = {};
   state.jizdy.forEach(j => { kmPerRidic[j.ridic] = (kmPerRidic[j.ridic]||0) + (+j.km||0); kmPerVozidlo[j.vozidlo] = (kmPerVozidlo[j.vozidlo]||0) + (+j.km||0); });

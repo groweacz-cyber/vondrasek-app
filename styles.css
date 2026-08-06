@@ -547,3 +547,35 @@ table.data-table {
 ::-webkit-scrollbar-track { background: var(--bg-darker); }
 ::-webkit-scrollbar-thumb { background: var(--card); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--card-hover); }
+
+/* =========================================================
+   KALENDÁŘ (Malá doprava)
+========================================================= */
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+.cal-dow {
+  text-align: center; font-size: 11px; font-weight: 700; color: var(--dim);
+  letter-spacing: 1px; padding-bottom: 6px; text-transform: uppercase;
+}
+.cal-cell {
+  background: var(--panel);
+  border: 1px solid var(--border-c);
+  border-radius: 9px;
+  padding: 8px;
+  display: flex; flex-direction: column; gap: 4px;
+  transition: transform 0.15s;
+}
+.cal-cell:not(.muted):hover { transform: translateY(-2px); }
+.cal-cell.muted { opacity: 0.35; }
+.cal-daynum { font-size: 13px; font-weight: 700; color: var(--white); }
+.cal-tag { font-size: 10.5px; font-weight: 600; }
+
+@media (max-width: 700px) {
+  .cal-cell { padding: 5px; min-height: 44px !important; }
+  .cal-daynum { font-size: 11px; }
+  .cal-tag { font-size: 9px; }
+}
+
