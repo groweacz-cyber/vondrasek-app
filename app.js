@@ -18,9 +18,21 @@ const state = loadState() || {
 function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 function loadState() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; } }
 if (!state.lastVozidloPerDriver) state.lastVozidloPerDriver = {};
-if (!state.malaDoprava) state.malaDoprava = {}; // { 'YYYY-MM-DD': { hotovo: ['20001',...], ridic: 'Novák J.' } }
+if (!state.malaDoprava) state.malaDoprava = {}; // { 'YYYY-MM-DD': { trasy: {'20001':{objizdkaKm:0}}, ridic, nakladyRidic, nakladyAuto, nakladyOstatni } }
+if (!state.pnsRouteConfig) {
+  state.pnsRouteConfig = {};
+}
+// Zajistí, že konfigurace existuje pro všechny trasy (i nově přidané)
+function ensureRouteConfig() {
+  PNS_ROUTES.forEach(r => {
+    if (!state.pnsRouteConfig[r]) {
+      state.pnsRouteConfig[r] = { cenovyModel: 'km', cenaZaKm: 0, kmZaDen: 0, pausalZaDen: 0, odhadNakladuZaDen: 0 };
+    }
+  });
+}
 
 const PNS_ROUTES = ['20001','20004','20011','20016','20041','20042','20043','20044','20045','20058','20063','20064','20066'];
+ensureRouteConfig();
 
 // ---------- ČESKÉ STÁTNÍ SVÁTKY ----------
 function easterSunday(year) {
@@ -67,6 +79,46 @@ function isDrivingDay(iso) {
   if (d.getDay() === 0) return false; // neděle
   if (holidayName(iso)) return false;
   return true;
+}
+
+// Sjednotí starý formát (hotovo: [...]) i nový formát (trasy: {...}) do jednoho tvaru
+function normalizeDenTrasy(rec) {
+  if (!rec) return {};
+  if (rec.trasy) return rec.trasy;
+  if (rec.hotovo) {
+    const t = {};
+    rec.hotovo.forEach(r => t[r] = { objizdkaKm: 0 });
+    return t;
+  }
+  return {};
+}
+
+// Spočítá příjem za daný den podle konfigurace tras (cena/km nebo paušál) + objížďky
+function vypocetPrijemDne(rec) {
+  const trasy = normalizeDenTrasy(rec);
+  let prijem = 0;
+  Object.keys(trasy).forEach(route => {
+    const cfg = state.pnsRouteConfig[route] || { cenovyModel:'km', cenaZaKm:0, kmZaDen:0, pausalZaDen:0 };
+    const extra = +trasy[route].objizdkaKm || 0;
+    if (cfg.cenovyModel === 'pausal') {
+      prijem += (+cfg.pausalZaDen || 0);
+    } else {
+      prijem += ((+cfg.kmZaDen||0) + extra) * (+cfg.cenaZaKm||0);
+    }
+  });
+  return prijem;
+}
+
+// Spočítá celkové km za daný den (základ + objížďky) přes všechny hotové trasy
+function vypocetKmDne(rec) {
+  const trasy = normalizeDenTrasy(rec);
+  let km = 0;
+  Object.keys(trasy).forEach(route => {
+    const cfg = state.pnsRouteConfig[route] || { kmZaDen:0 };
+    const extra = +trasy[route].objizdkaKm || 0;
+    km += (+cfg.kmZaDen||0) + extra;
+  });
+  return km;
 }
 
 
@@ -1252,14 +1304,19 @@ function renderMalaDoprava() {
     if (!isDrivingDay(iso)) continue;
     drivingDays++;
     const rec = state.malaDoprava[iso];
-    const hotovo = rec ? rec.hotovo.length : 0;
+    const trasy = normalizeDenTrasy(rec);
+    const hotovo = Object.keys(trasy).length;
     if (hotovo >= PNS_ROUTES.length) completeDays++;
     else if (hotovo > 0) partialDays++;
     else if (iso < todayIso) missedDays++;
-    if (rec && (rec.prijem || rec.nakladyRidic || rec.nakladyAuto || rec.nakladyOstatni)) {
-      dnySFinance++;
-      sumPrijem += (+rec.prijem||0);
-      sumNaklady += (+rec.nakladyRidic||0) + (+rec.nakladyAuto||0) + (+rec.nakladyOstatni||0);
+    if (rec) {
+      const prijem = vypocetPrijemDne(rec);
+      const naklady = (+rec.nakladyRidic||0) + (+rec.nakladyAuto||0) + (+rec.nakladyOstatni||0);
+      if (prijem > 0 || naklady > 0) {
+        dnySFinance++;
+        sumPrijem += prijem;
+        sumNaklady += naklady;
+      }
     }
   }
   const sumZisk = sumPrijem - sumNaklady;
@@ -1272,15 +1329,19 @@ function renderMalaDoprava() {
 
     <div class="card-panel" style="margin-bottom:20px;">
       <h3>Trasy</h3>
-      <p class="csub">Fixní seznam tras pro PNS, a.s.</p>
+      <p class="csub">Klikni na trasu — nastavíš cenu jednou a appka ji pak automaticky použije každý den. Uvidíš tam i měsíční přehled té trasy.</p>
       <div style="display:flex; flex-wrap:wrap; gap:8px;">
-        ${PNS_ROUTES.map(r => `<span class="badge info" style="font-size:12px; padding:5px 12px;">${r}</span>`).join('')}
+        ${PNS_ROUTES.map(r => {
+          const cfg = state.pnsRouteConfig[r];
+          const nastaveno = cfg.cenovyModel === 'pausal' ? cfg.pausalZaDen > 0 : (cfg.cenaZaKm > 0 && cfg.kmZaDen > 0);
+          return `<button class="badge info" style="font-size:12px; padding:6px 14px; border:none; cursor:pointer; ${!nastaveno?'opacity:0.55;':''}" onclick="openTrasaDetail('${r}')" title="${nastaveno?'Nastaveno':'Zatím bez nastavené ceny — klikni pro nastavení'}">${r}${!nastaveno?' ⚠':''}</button>`;
+        }).join('')}
       </div>
     </div>
 
     <div class="card-panel" style="margin-bottom:20px;">
       <h3>💰 Ziskovost — ${monthNames[month]} ${year}</h3>
-      <p class="csub">${dnySFinance} z ${drivingDays} jízdních dnů má vyplněné příjmy/náklady. Doplníš je v detailu dne.</p>
+      <p class="csub">${dnySFinance} z ${drivingDays} jízdních dnů má data. Příjem se počítá automaticky podle nastavení tras.</p>
       <div class="metrics" style="margin-bottom:0;">
         <div class="metric"><div class="m-label">Příjmy</div><div class="m-value">${sumPrijem.toLocaleString('cs-CZ')} Kč</div></div>
         <div class="metric"><div class="m-label">Náklady</div><div class="m-value">${sumNaklady.toLocaleString('cs-CZ')} Kč</div></div>
@@ -1311,6 +1372,7 @@ function renderMalaDoprava() {
     </div>
 
     ${renderMalaDopravaModal()}
+    ${renderTrasaDetailModal()}
   `;
 }
 
@@ -1339,17 +1401,20 @@ function renderMalaDopravaCalendar(year, month) {
     }
 
     const rec = state.malaDoprava[iso];
-    const hotovo = rec ? rec.hotovo.length : 0;
+    const trasy = normalizeDenTrasy(rec);
+    const hotovo = Object.keys(trasy).length;
     let barva = 'var(--border-c)', bg = 'var(--panel)';
     if (hotovo >= PNS_ROUTES.length) { barva = 'var(--green)'; bg = 'rgba(16,185,129,0.08)'; }
     else if (hotovo > 0) { barva = 'var(--amber)'; bg = 'rgba(245,158,11,0.08)'; }
     else if (iso < todayIso) { barva = 'var(--red)'; bg = 'rgba(239,68,68,0.06)'; }
 
     let ziskTitle = '';
-    if (rec && (rec.prijem || rec.nakladyRidic || rec.nakladyAuto || rec.nakladyOstatni)) {
+    if (rec) {
+      const prijem = vypocetPrijemDne(rec);
       const naklady = (+rec.nakladyRidic||0)+(+rec.nakladyAuto||0)+(+rec.nakladyOstatni||0);
-      const zisk = (+rec.prijem||0) - naklady;
-      ziskTitle = ` · zisk ${zisk.toLocaleString('cs-CZ')} Kč`;
+      if (prijem > 0 || naklady > 0) {
+        ziskTitle = ` · zisk ${(prijem-naklady).toLocaleString('cs-CZ')} Kč`;
+      }
     }
 
     cells += `<div class="cal-cell" style="min-height:56px; cursor:pointer; border-color:${barva}; background:${bg}; ${isToday?'box-shadow:0 0 0 2px var(--purple);':''}" onclick="openMalaDopravaDen('${iso}')" title="${hotovo}/${PNS_ROUTES.length} tras${ziskTitle}">
@@ -1371,11 +1436,12 @@ function renderMalaDopravaCalendar(year, month) {
 }
 
 function renderMalaDopravaModal() {
-  return `<div class="modal-overlay" id="malaDopravaModal"><div class="modal" style="max-width:520px;" id="malaDopravaContent"></div></div>`;
+  return `<div class="modal-overlay" id="malaDopravaModal"><div class="modal" style="max-width:560px;" id="malaDopravaContent"></div></div>`;
 }
 
 window.openMalaDopravaDen = function(iso) {
-  const rec = state.malaDoprava[iso] || { hotovo: [], ridic: '', prijem: '', nakladyRidic: '', nakladyAuto: '', nakladyOstatni: '' };
+  const rec = state.malaDoprava[iso];
+  const trasy = normalizeDenTrasy(rec);
   const dateObj = new Date(iso);
   const dowNames = ['Neděle','Pondělí','Úterý','Středa','Čtvrtek','Pátek','Sobota'];
 
@@ -1383,7 +1449,7 @@ window.openMalaDopravaDen = function(iso) {
     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px;">
       <div>
         <h2 style="margin-bottom:2px;">📰 ${dowNames[dateObj.getDay()]} ${formatDate(iso)}</h2>
-        <p class="modal-sub" style="margin-bottom:0;">Odškrtni dokončené trasy a doplň finance.</p>
+        <p class="modal-sub" style="margin-bottom:0;">Odškrtni dokončené trasy. Pokud řidič jel objížďku, zapiš km navíc.</p>
       </div>
       <button class="btn btn-ghost btn-sm" onclick="closeModal('malaDopravaModal')">✕</button>
     </div>
@@ -1392,17 +1458,31 @@ window.openMalaDopravaDen = function(iso) {
       <label>Řidič</label>
       <select id="malaDopravaRidic">
         <option value="">— nevybráno —</option>
-        ${state.ridici.map(r => `<option value="${r.jmeno}" ${rec.ridic===r.jmeno?'selected':''}>${r.jmeno}</option>`).join('')}
+        ${state.ridici.map(r => `<option value="${r.jmeno}" ${(rec&&rec.ridic===r.jmeno)?'selected':''}>${r.jmeno}</option>`).join('')}
       </select>
     </div>
 
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:16px 0;">
-      ${PNS_ROUTES.map(route => `
-        <label style="display:flex; align-items:center; gap:8px; background:var(--card); padding:10px 12px; border-radius:8px; cursor:pointer; border:1px solid var(--border-c);">
-          <input type="checkbox" class="mala-route-cb" value="${route}" ${rec.hotovo.includes(route)?'checked':''} style="width:16px;height:16px;">
-          <span style="font-weight:600;">${route}</span>
-        </label>
-      `).join('')}
+    <div style="display:flex; flex-direction:column; gap:6px; margin:16px 0;">
+      ${PNS_ROUTES.map(route => {
+        const cfg = state.pnsRouteConfig[route];
+        const done = !!trasy[route];
+        const objizdka = done ? (trasy[route].objizdkaKm || 0) : 0;
+        const cenaInfo = cfg.cenovyModel === 'pausal'
+          ? `paušál ${cfg.pausalZaDen||0} Kč/den`
+          : `${cfg.cenaZaKm||0} Kč/km × ${cfg.kmZaDen||0} km`;
+        return `
+        <div style="display:flex; align-items:center; gap:10px; background:var(--card); padding:9px 12px; border-radius:8px; border:1px solid var(--border-c);">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; flex:1;">
+            <input type="checkbox" class="mala-route-cb" data-route="${route}" ${done?'checked':''} style="width:16px;height:16px;">
+            <span style="font-weight:600;">${route}</span>
+            <span style="font-size:11px; color:var(--dim);">${cenaInfo}</span>
+          </label>
+          <div style="display:flex; align-items:center; gap:5px;">
+            <input type="number" class="mala-objizdka" data-route="${route}" min="0" step="1" value="${objizdka||''}" placeholder="0" ${done?'':'disabled'} style="width:64px; padding:5px 8px; font-size:12.5px; text-align:right;">
+            <span style="font-size:11px; color:var(--dim);">km navíc</span>
+          </div>
+        </div>
+      `;}).join('')}
     </div>
 
     <div style="display:flex; gap:10px; margin-bottom:20px;">
@@ -1410,17 +1490,13 @@ window.openMalaDopravaDen = function(iso) {
       <button type="button" class="btn btn-ghost btn-sm" id="btnMalaZadne">Odškrtnout vše</button>
     </div>
 
-    <div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin-bottom:10px; padding-top:14px; border-top:1px solid var(--border-c);">Finance dne</div>
+    <div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin-bottom:10px; padding-top:14px; border-top:1px solid var(--border-c);">Náklady dne</div>
 
-    <div class="form-row">
-      <label>Příjem od PNS (Kč)</label>
-      <input type="number" id="malaPrijem" step="1" min="0" value="${rec.prijem||''}" style="font-size:16px; font-weight:700;">
-    </div>
     <div class="form-cols-2">
-      <div class="form-row"><label>Náklady na řidiče (Kč)</label><input type="number" id="malaNakladyRidic" step="1" min="0" value="${rec.nakladyRidic||''}"></div>
-      <div class="form-row"><label>Náklady na auto (Kč)</label><input type="number" id="malaNakladyAuto" step="1" min="0" value="${rec.nakladyAuto||''}"></div>
+      <div class="form-row"><label>Náklady na řidiče (Kč)</label><input type="number" id="malaNakladyRidic" step="1" min="0" value="${rec&&rec.nakladyRidic||''}"></div>
+      <div class="form-row"><label>Náklady na auto (Kč)</label><input type="number" id="malaNakladyAuto" step="1" min="0" value="${rec&&rec.nakladyAuto||''}"></div>
     </div>
-    <div class="form-row"><label>Ostatní náklady (Kč)</label><input type="number" id="malaNakladyOstatni" step="1" min="0" value="${rec.nakladyOstatni||''}"></div>
+    <div class="form-row"><label>Ostatní náklady (Kč)</label><input type="number" id="malaNakladyOstatni" step="1" min="0" value="${rec&&rec.nakladyOstatni||''}"></div>
 
     <div id="malaZiskPreview" style="margin:14px 0 4px; padding:14px 16px; background:var(--card); border-radius:var(--radius-sm); border:1px solid var(--border-c);"></div>
 
@@ -1430,20 +1506,26 @@ window.openMalaDopravaDen = function(iso) {
     </div>
   `;
 
-  document.getElementById('btnMalaVsechny').addEventListener('click', () => {
-    document.querySelectorAll('.mala-route-cb').forEach(cb => cb.checked = true);
-  });
-  document.getElementById('btnMalaZadne').addEventListener('click', () => {
-    document.querySelectorAll('.mala-route-cb').forEach(cb => cb.checked = false);
-  });
+  function currentTrasyObj() {
+    const t = {};
+    document.querySelectorAll('.mala-route-cb:checked').forEach(cb => {
+      const route = cb.dataset.route;
+      const objInput = document.querySelector(`.mala-objizdka[data-route="${route}"]`);
+      t[route] = { objizdkaKm: +objInput.value || 0 };
+    });
+    return t;
+  }
 
   function updateZiskPreview() {
-    const prijem = +document.getElementById('malaPrijem').value || 0;
+    const prijem = vypocetPrijemDne({ trasy: currentTrasyObj() });
     const naklady = ['malaNakladyRidic','malaNakladyAuto','malaNakladyOstatni'].reduce((s,id) => s + (+document.getElementById(id).value||0), 0);
     const zisk = prijem - naklady;
     const marze = prijem > 0 ? (zisk/prijem*100).toFixed(1) : '0.0';
     const barva = zisk >= 0 ? 'var(--green)' : 'var(--red)';
     document.getElementById('malaZiskPreview').innerHTML = `
+      <div style="display:flex; justify-content:space-between; font-size:12.5px; color:var(--muted); margin-bottom:5px;">
+        <span>Příjem (dle tras)</span><span>${prijem.toLocaleString('cs-CZ')} Kč</span>
+      </div>
       <div style="display:flex; justify-content:space-between; font-size:12.5px; color:var(--muted); margin-bottom:5px;">
         <span>Náklady celkem</span><span>${naklady.toLocaleString('cs-CZ')} Kč</span>
       </div>
@@ -1454,28 +1536,151 @@ window.openMalaDopravaDen = function(iso) {
       <div style="text-align:right; font-size:11px; color:var(--dim); margin-top:2px;">marže ${marze} %</div>
     `;
   }
-  ['malaPrijem','malaNakladyRidic','malaNakladyAuto','malaNakladyOstatni'].forEach(id => {
+
+  document.querySelectorAll('.mala-route-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const objInput = document.querySelector(`.mala-objizdka[data-route="${cb.dataset.route}"]`);
+      objInput.disabled = !cb.checked;
+      if (!cb.checked) objInput.value = '';
+      updateZiskPreview();
+    });
+  });
+  document.querySelectorAll('.mala-objizdka').forEach(inp => inp.addEventListener('input', updateZiskPreview));
+
+  document.getElementById('btnMalaVsechny').addEventListener('click', () => {
+    document.querySelectorAll('.mala-route-cb').forEach(cb => {
+      cb.checked = true;
+      document.querySelector(`.mala-objizdka[data-route="${cb.dataset.route}"]`).disabled = false;
+    });
+    updateZiskPreview();
+  });
+  document.getElementById('btnMalaZadne').addEventListener('click', () => {
+    document.querySelectorAll('.mala-route-cb').forEach(cb => { cb.checked = false; });
+    document.querySelectorAll('.mala-objizdka').forEach(inp => { inp.disabled = true; inp.value = ''; });
+    updateZiskPreview();
+  });
+  ['malaNakladyRidic','malaNakladyAuto','malaNakladyOstatni'].forEach(id => {
     document.getElementById(id).addEventListener('input', updateZiskPreview);
   });
   updateZiskPreview();
 
   document.getElementById('btnMalaUlozit').addEventListener('click', () => {
-    const hotovo = Array.from(document.querySelectorAll('.mala-route-cb:checked')).map(cb => cb.value);
+    const trasyNove = currentTrasyObj();
     const ridic = document.getElementById('malaDopravaRidic').value;
-    const prijem = +document.getElementById('malaPrijem').value || 0;
     const nakladyRidic = +document.getElementById('malaNakladyRidic').value || 0;
     const nakladyAuto = +document.getElementById('malaNakladyAuto').value || 0;
     const nakladyOstatni = +document.getElementById('malaNakladyOstatni').value || 0;
-    const hasFinance = prijem || nakladyRidic || nakladyAuto || nakladyOstatni;
-    if (hotovo.length === 0 && !ridic && !hasFinance) {
+    const hasFinance = nakladyRidic || nakladyAuto || nakladyOstatni;
+    if (Object.keys(trasyNove).length === 0 && !ridic && !hasFinance) {
       delete state.malaDoprava[iso];
     } else {
-      state.malaDoprava[iso] = { hotovo, ridic, prijem, nakladyRidic, nakladyAuto, nakladyOstatni };
+      state.malaDoprava[iso] = { trasy: trasyNove, ridic, nakladyRidic, nakladyAuto, nakladyOstatni };
     }
     saveState(); closeModal('malaDopravaModal'); renderSection('mala-doprava');
   });
 
   openModal('malaDopravaModal');
+};
+
+function renderTrasaDetailModal() {
+  return `<div class="modal-overlay" id="trasaDetailModal"><div class="modal" style="max-width:560px;" id="trasaDetailContent"></div></div>`;
+}
+
+window.openTrasaDetail = function(route) {
+  const cfg = state.pnsRouteConfig[route];
+
+  // Statistika trasy za aktuálně zobrazený měsíc v kalendáři
+  const now = new Date();
+  const viewDate = new Date(now.getFullYear(), now.getMonth() + malaDopravaMonthOffset, 1);
+  const year = viewDate.getFullYear(), month = viewDate.getMonth();
+  const monthNames = ['Leden','Únor','Březen','Duben','Květen','Červen','Červenec','Srpen','Září','Říjen','Listopad','Prosinec'];
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+
+  let dnyHotovo = 0, kmZakladCelkem = 0, kmObjizdkaCelkem = 0, prijemCelkem = 0;
+  const objizdkyList = [];
+  for (let d=1; d<=daysInMonth; d++) {
+    const iso = toISO(new Date(year, month, d));
+    const rec = state.malaDoprava[iso];
+    if (!rec) continue;
+    const trasy = normalizeDenTrasy(rec);
+    if (!trasy[route]) continue;
+    dnyHotovo++;
+    const extra = +trasy[route].objizdkaKm || 0;
+    kmZakladCelkem += (+cfg.kmZaDen || 0);
+    kmObjizdkaCelkem += extra;
+    prijemCelkem += cfg.cenovyModel === 'pausal' ? (+cfg.pausalZaDen||0) : (((+cfg.kmZaDen||0)+extra) * (+cfg.cenaZaKm||0));
+    if (extra > 0) objizdkyList.push({ iso, extra });
+  }
+
+  document.getElementById('trasaDetailContent').innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
+      <h2 style="margin-bottom:2px;">📍 Trasa ${route}</h2>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('trasaDetailModal')">✕</button>
+    </div>
+    <p class="modal-sub">Nastav cenu jednou — appka ji pak použije automaticky každý den, kdy trasu odškrtneš.</p>
+
+    <div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin:16px 0 10px;">Cenový model</div>
+    <div style="display:flex; gap:16px; margin-bottom:14px;">
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+        <input type="radio" name="cenovyModel" value="km" id="modelKm" ${cfg.cenovyModel!=='pausal'?'checked':''}> Cena za km
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+        <input type="radio" name="cenovyModel" value="pausal" id="modelPausal" ${cfg.cenovyModel==='pausal'?'checked':''}> Paušál za den
+      </label>
+    </div>
+
+    <div id="polaKm" class="form-cols-2" style="${cfg.cenovyModel==='pausal'?'display:none;':''}">
+      <div class="form-row"><label>Cena za km (Kč)</label><input type="number" id="trasaCenaZaKm" step="0.1" min="0" value="${cfg.cenaZaKm||''}"></div>
+      <div class="form-row"><label>Počet km trasy (za den)</label><input type="number" id="trasaKmZaDen" step="1" min="0" value="${cfg.kmZaDen||''}"></div>
+    </div>
+    <div id="poleParusal" class="form-row" style="${cfg.cenovyModel!=='pausal'?'display:none;':''}">
+      <label>Paušál za den (Kč)</label>
+      <input type="number" id="trasaPausalZaDen" step="1" min="0" value="${cfg.pausalZaDen||''}">
+    </div>
+
+    <div class="modal-actions" style="margin-bottom:20px;">
+      <button type="button" class="btn btn-primary" id="btnTrasaUlozit">Uložit nastavení</button>
+    </div>
+
+    <div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin-bottom:10px; padding-top:14px; border-top:1px solid var(--border-c);">Přehled — ${monthNames[month]} ${year}</div>
+    <div class="metrics" style="margin-bottom:16px;">
+      <div class="metric"><div class="m-label">Dní odjeto</div><div class="m-value">${dnyHotovo}</div></div>
+      <div class="metric"><div class="m-label">Km celkem</div><div class="m-value">${(kmZakladCelkem+kmObjizdkaCelkem).toLocaleString('cs-CZ')}</div>${kmObjizdkaCelkem>0?`<div class="m-delta neutral">z toho ${kmObjizdkaCelkem} km objížďky</div>`:''}</div>
+      <div class="metric"><div class="m-label">Příjem</div><div class="m-value" style="color:var(--green);">${prijemCelkem.toLocaleString('cs-CZ')} Kč</div></div>
+    </div>
+
+    ${objizdkyList.length > 0 ? `
+      <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">Dny s objížďkou:</div>
+      <table class="data-table">
+        <thead><tr><th>Datum</th><th style="text-align:right">Km navíc</th></tr></thead>
+        <tbody>
+          ${objizdkyList.map(o => `<tr><td>${formatDate(o.iso)}</td><td style="text-align:right">+${o.extra} km</td></tr>`).join('')}
+        </tbody>
+      </table>
+    ` : `<p style="font-size:12.5px; color:var(--dim); font-style:italic;">Žádné objížďky tento měsíc.</p>`}
+  `;
+
+  document.getElementById('modelKm').addEventListener('change', toggleCenovyModel);
+  document.getElementById('modelPausal').addEventListener('change', toggleCenovyModel);
+  function toggleCenovyModel() {
+    const jePausal = document.getElementById('modelPausal').checked;
+    document.getElementById('polaKm').style.display = jePausal ? 'none' : 'grid';
+    document.getElementById('poleParusal').style.display = jePausal ? 'flex' : 'none';
+  }
+
+  document.getElementById('btnTrasaUlozit').addEventListener('click', () => {
+    const cenovyModel = document.getElementById('modelPausal').checked ? 'pausal' : 'km';
+    state.pnsRouteConfig[route] = {
+      cenovyModel,
+      cenaZaKm: +document.getElementById('trasaCenaZaKm').value || 0,
+      kmZaDen: +document.getElementById('trasaKmZaDen').value || 0,
+      pausalZaDen: +document.getElementById('trasaPausalZaDen').value || 0,
+      odhadNakladuZaDen: cfg.odhadNakladuZaDen || 0
+    };
+    saveState(); closeModal('trasaDetailModal'); renderSection('mala-doprava');
+  });
+
+  openModal('trasaDetailModal');
 };
 
 function bindMalaDoprava() {
