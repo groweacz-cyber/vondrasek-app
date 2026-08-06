@@ -9,13 +9,15 @@
 
 const STORAGE_KEY = 'vondrasek_app_v1';
 const state = loadState() || {
-  role: null, driverName: null,
+  role: null, driverName: null, driverId: null,
   jizdy: seedJizdy(), tankovani: seedTankovani(),
-  vozidla: seedVozidla(), ridici: seedRidici(), zakazky: seedZakazky()
+  vozidla: seedVozidla(), ridici: seedRidici(), zakazky: seedZakazky(),
+  lastVozidloPerDriver: {} // { driverId: 'SPZ' } — appka si pamatuje poslední použité vozidlo
 };
 
 function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 function loadState() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; } }
+if (!state.lastVozidloPerDriver) state.lastVozidloPerDriver = {};
 
 function seedJizdy() {
   return [
@@ -387,7 +389,11 @@ function bindJizdy() {
   document.getElementById('jizdaForm').addEventListener('submit', (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    state.jizdy.unshift({ id: Date.now(), datum: fd.get('datum'), ridic: fd.get('ridic'), vozidlo: fd.get('vozidlo'), trasaOd: fd.get('trasaOd'), trasaDo: fd.get('trasaDo'), km: +fd.get('km'), poznamka: fd.get('poznamka') });
+    const vozidlo = fd.get('vozidlo');
+    state.jizdy.unshift({ id: Date.now(), datum: fd.get('datum'), ridic: fd.get('ridic'), vozidlo, trasaOd: fd.get('trasaOd'), trasaDo: fd.get('trasaDo'), km: +fd.get('km'), poznamka: fd.get('poznamka') });
+    if (state.role === 'driver' && state.driverId) {
+      state.lastVozidloPerDriver[state.driverId] = vozidlo;
+    }
     saveState(); closeModal('jizdaModal'); renderSection('jizdy');
   });
 }
@@ -411,9 +417,14 @@ function renderJizdaModal() {
           </div>
           <div class="form-row"><label>Vozidlo *</label>
             <select name="vozidlo" required>
-              ${state.vozidla.map(v => `<option value="${v.spz}">${v.spz} — ${v.znacka}</option>`).join('')}
+              ${state.vozidla.map(v => {
+                const posledni = isDriver ? state.lastVozidloPerDriver[state.driverId] : null;
+                const selected = posledni ? v.spz === posledni : false;
+                return `<option value="${v.spz}" ${selected?'selected':''}>${v.spz} — ${v.znacka}</option>`;
+              }).join('')}
               ${state.vozidla.length===0?'<option>Nejprve přidej vozidlo</option>':''}
             </select>
+            ${isDriver && state.lastVozidloPerDriver[state.driverId] ? '<span style="font-size:11px;color:var(--purple-light);">Předvyplněno podle poslední jízdy</span>' : ''}
           </div>
           <div class="form-cols-2">
             <div class="form-row"><label>Odkud *</label><input type="text" name="trasaOd" required placeholder="např. Praha"></div>
@@ -500,7 +511,16 @@ function renderTankModal() {
             <div class="form-row"><label>Místo *</label><input type="text" name="misto" required placeholder="např. OMV Praha"></div>
           </div>
           <div class="form-cols-2">
-            <div class="form-row"><label>Vozidlo *</label><select name="vozidlo" required>${state.vozidla.map(v=>`<option>${v.spz}</option>`).join('')}</select></div>
+            <div class="form-row"><label>Vozidlo *</label>
+              <select name="vozidlo" required>
+                ${state.vozidla.map(v => {
+                  const posledni = isDriver ? state.lastVozidloPerDriver[state.driverId] : null;
+                  const selected = posledni ? v.spz === posledni : false;
+                  return `<option ${selected?'selected':''}>${v.spz}</option>`;
+                }).join('')}
+              </select>
+              ${isDriver && state.lastVozidloPerDriver[state.driverId] ? '<span style="font-size:11px;color:var(--purple-light);">Předvyplněno podle posledního tankování</span>' : ''}
+            </div>
             <div class="form-row"><label>Řidič *</label>
               <select name="ridic" required>
                 ${state.ridici.map(r => { const s = r.jmeno.split(' ')[0]+' '+r.jmeno.split(' ')[1][0]+'.'; return `<option ${isDriver && r.id===state.driverId?'selected':''}>${s}</option>`; }).join('')}
@@ -555,11 +575,15 @@ function bindTankovani() {
 
   document.getElementById('tankForm').addEventListener('submit', (e) => {
     e.preventDefault(); const fd = new FormData(e.target);
+    const vozidlo = fd.get('vozidlo');
     state.tankovani.unshift({
-      id: Date.now(), datum: fd.get('datum'), vozidlo: fd.get('vozidlo'), ridic: fd.get('ridic'),
+      id: Date.now(), datum: fd.get('datum'), vozidlo, ridic: fd.get('ridic'),
       misto: fd.get('misto'), litry: +fd.get('litry'), cenaCelkem: +fd.get('cenaCelkem'),
       uctenka: uctenkaBase64
     });
+    if (state.role === 'driver' && state.driverId) {
+      state.lastVozidloPerDriver[state.driverId] = vozidlo;
+    }
     saveState(); closeModal('tankModal'); renderSection('tankovani');
   });
 }
