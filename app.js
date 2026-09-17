@@ -1238,6 +1238,47 @@ function ridicStats(r) {
   return { shortName, jizdy, pocetJizd: jizdy.length, kmCelkem, pocetJizdSFinance: jizdySFinance.length, zisk, tankovani, litryCelkem, nakladyPHM };
 }
 
+// Statistika malé dopravy pro daného řidiče (podle celého jména) za aktuální kalendářní měsíc
+function malaDopravaRidicMesic(jmeno) {
+  const monthNames = ['Leden','Únor','Březen','Duben','Květen','Červen','Červenec','Srpen','Září','Říjen','Listopad','Prosinec'];
+  const now = new Date();
+  const year = now.getFullYear(), month = now.getMonth();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const vlastniTrasy = PNS_ROUTES.filter(r => state.pnsRouteConfig[r].stalyRidic === jmeno);
+
+  let dnyOdjeto = 0, kmCelkem = 0, zastupy = 0;
+  for (let d=1; d<=daysInMonth; d++) {
+    const iso = toISO(new Date(year, month, d));
+    if (!isDrivingDay(iso)) continue;
+    let jelDnes = false;
+    PNS_ROUTES.forEach(route => {
+      const eff = efektivniTrasaDen(route, iso);
+      if (eff.nejelo || eff.ridic !== jmeno) return;
+      jelDnes = true;
+      const cfg = state.pnsRouteConfig[route];
+      kmCelkem += (+cfg.kmZaDen||0) + eff.objizdkaKm;
+      if (cfg.stalyRidic !== jmeno) zastupy++;
+    });
+    if (jelDnes) dnyOdjeto++;
+  }
+  return { vlastniTrasy, dnyOdjeto, kmCelkem, zastupy, monthLabel: `${monthNames[month]} ${year}` };
+}
+
+// Sekce v detailu řidiče — zobrazí se jen když má trasu jako stálý řidič nebo letos zastupoval
+function renderMalaDopravaRidicSekce(jmeno) {
+  const s = malaDopravaRidicMesic(jmeno);
+  if (s.vlastniTrasy.length === 0 && s.zastupy === 0) return '';
+  return `
+    <div style="font-size:12px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin:20px 0 10px; padding-top:14px; border-top:1px solid var(--border-c);">📰 Malá doprava — ${s.monthLabel}</div>
+    ${s.vlastniTrasy.length ? `<p style="font-size:12.5px; color:var(--muted); margin-bottom:10px;">Stálé trasy: ${s.vlastniTrasy.map(r=>`<span class="badge info" style="margin-right:4px;">${r}</span>`).join('')}</p>` : `<p style="font-size:12.5px; color:var(--dim); font-style:italic; margin-bottom:10px;">Nemá žádnou trasu jako stálý řidič.</p>`}
+    <div class="metrics" style="margin-bottom:0;">
+      <div class="metric"><div class="m-label">Dní odjeto</div><div class="m-value">${s.dnyOdjeto}</div></div>
+      <div class="metric"><div class="m-label">Km celkem</div><div class="m-value">${s.kmCelkem.toLocaleString('cs-CZ')}</div></div>
+      <div class="metric"><div class="m-label">Zástupy</div><div class="m-value">${s.zastupy}</div></div>
+    </div>
+  `;
+}
+
 function renderRidicDetailModal() {
   return `
     <div class="modal-overlay" id="ridicDetailModal">
@@ -1307,6 +1348,7 @@ window.openRidicDetail = function(id) {
         `).join('') || `<tr><td colspan="5" class="empty-state">Žádné tankování</td></tr>`}
       </tbody>
     </table>
+    ${renderMalaDopravaRidicSekce(r.jmeno)}
   `;
   openModal('ridicDetailModal');
 };
