@@ -579,3 +579,38 @@ table.data-table {
   .cal-tag { font-size: 9px; }
 }
 
+/* =========================================================
+   TISK — přepíše barevné proměnné na černobílé, appka je
+   VŠUDE staví přes var(--x), takže tím zbělá i inline styly
+========================================================= */
+@media print {
+  :root {
+    --bg: #fff; --bg-darker: #fff; --panel: #fff; --card: #fff; --card-hover: #fff;
+    --border-c: #ccc;
+    --purple: #000; --purple-light: #333; --blue: #000; --cyan: #333;
+    --white: #000; --ice: #000; --muted: #333; --dim: #555;
+    --green: #0A6B34; --amber: #8A5A00; --red: #A30000;
+    --gradient: none;
+  }
+  body { background: #fff !important; color: #000 !important; }
+  .sidebar, .topbar, .menu-toggle, .modal-overlay, .page-actions, button, .btn { display: none !important; }
+  .app { display: block !important; }
+  .main { background: #fff !important; }
+  .content { padding: 0 !important; max-width: 100% !important; }
+  .metric::before { display: none !important; }
+  .card-panel, .table-wrap, .metric { border: 1px solid #ccc !important; box-shadow: none !important; break-inside: avoid; }
+  .data-table th { background: #eee !important; }
+  a { color: #000 !important; text-decoration: underline; }
+
+  #content::before {
+    content: "Autodoprava Vondrášek, s.r.o. · tisk " attr(data-tisk-datum);
+    display: block;
+    font-family: var(--font-display), sans-serif;
+    font-weight: 800;
+    font-size: 16px;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #000;
+  }
+}
+

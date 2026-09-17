@@ -237,6 +237,7 @@ document.getElementById('logoutBtn').addEventListener('click', () => {
 function showApp() {
   document.getElementById('loginOverlay').style.display = 'none';
   document.getElementById('app').hidden = false;
+  document.getElementById('content').setAttribute('data-tisk-datum', new Date().toLocaleDateString('cs-CZ'));
   const isOwner = state.role === 'owner';
   document.getElementById('userIc').textContent = isOwner ? '👔' : '🚚';
   document.getElementById('userName').textContent = isOwner ? 'Majitel' : state.driverName;
@@ -1399,6 +1400,7 @@ function renderMalaDoprava() {
   return `
     <div class="page-head">
       <div><h1>📰 Malá doprava — PNS</h1><p>Rozvoz tisku, ${PNS_ROUTES.length} tras. Jede se každý den kromě neděle a státních svátků.</p></div>
+      <div class="page-actions"><button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Tisk / PDF</button></div>
     </div>
 
     <div class="card-panel" style="margin-bottom:20px;">
@@ -2044,7 +2046,10 @@ function renderReporty() {
   const marze = sumFakturovano > 0 ? (sumZisk/sumFakturovano*100).toFixed(1) : '0.0';
 
   return `
-    <div class="page-head"><div><h1>📊 Reporty</h1><p>Výkon podle řidičů, vozidel a nákladů.</p></div></div>
+    <div class="page-head">
+      <div><h1>📊 Reporty</h1><p>Výkon podle řidičů, vozidel a nákladů.</p></div>
+      <div class="page-actions"><button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Tisk / PDF</button></div>
+    </div>
 
     <div class="card-panel" style="margin-bottom:20px;">
       <h3>💰 Ziskovost</h3>
@@ -2085,7 +2090,10 @@ function renderFakturace() {
   const suma = state.zakazky.reduce((s,z)=>s+(+z.cena||0),0);
   const dok = state.zakazky.filter(z=>z.stav==='Dokončeno');
   return `
-    <div class="page-head"><div><h1>🧾 Podklady k fakturaci</h1><p>Přehled zakázek k fakturaci.</p></div></div>
+    <div class="page-head">
+      <div><h1>🧾 Podklady k fakturaci</h1><p>Přehled zakázek k fakturaci.</p></div>
+      <div class="page-actions"><button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Tisk / PDF</button></div>
+    </div>
     <div class="metrics">
       <div class="metric"><div class="m-label">Dokončené</div><div class="m-value">${dok.length}</div><div class="m-delta neutral">k fakturaci</div></div>
       <div class="metric"><div class="m-label">Celková hodnota</div><div class="m-value">${suma.toLocaleString('cs-CZ')} Kč</div><div class="m-delta">všechny zakázky</div></div>
