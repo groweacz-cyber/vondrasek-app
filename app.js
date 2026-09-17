@@ -1951,8 +1951,11 @@ window.openTrasaDetail = function(route) {
       </div>
     </div>
 
-    <div class="modal-actions" style="margin-bottom:20px;">
+    <div class="modal-actions" style="margin-bottom:12px;">
       <button type="button" class="btn btn-primary" id="btnTrasaUlozit">Uložit nastavení</button>
+    </div>
+    <div style="display:flex; justify-content:flex-end; margin-bottom:20px;">
+      <button type="button" class="btn btn-ghost btn-sm" id="btnTrasaKopirovat">Použít cenu na všechny trasy</button>
     </div>
 
     <div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin-bottom:10px; padding-top:14px; border-top:1px solid var(--border-c);">Přehled — ${monthNames[month]} ${year}</div>
@@ -1994,6 +1997,22 @@ window.openTrasaDetail = function(route) {
       stalyRidic: document.getElementById('trasaStalyRidic').value
     };
     saveState(); closeModal('trasaDetailModal'); renderSection('mala-doprava');
+  });
+
+  document.getElementById('btnTrasaKopirovat').addEventListener('click', () => {
+    const zdroj = {
+      cenovyModel: document.getElementById('modelPausal').checked ? 'pausal' : 'km',
+      cenaZaKm: +document.getElementById('trasaCenaZaKm').value || 0,
+      kmZaDen: +document.getElementById('trasaKmZaDen').value || 0,
+      pausalZaDen: +document.getElementById('trasaPausalZaDen').value || 0,
+      odhadNakladuZaDen: +document.getElementById('trasaOdhadNakladu').value || 0
+    };
+    const ostatni = PNS_ROUTES.filter(r => r !== route);
+    if (!confirm(`Přepsat cenu, model a odhad nákladů na ${ostatni.length} ostatních tras podle trasy ${route}?\n\nStálý řidič u každé trasy zůstane beze změny. Tato akce je nevratná.`)) return;
+    ostatni.forEach(r => { state.pnsRouteConfig[r] = { ...state.pnsRouteConfig[r], ...zdroj }; });
+    saveState();
+    alert(`Hotovo — cena přepsána na ${ostatni.length} tras.`);
+    closeModal('trasaDetailModal'); renderSection('mala-doprava');
   });
 
   openModal('trasaDetailModal');
