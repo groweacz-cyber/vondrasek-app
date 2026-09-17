@@ -2082,3 +2082,10 @@ function downloadFile(name, mime, data) {
 
 // Auto-login if already logged in (must run after SECTIONS is defined above)
 if (state.role) showApp();
+
+// PWA — zaregistruje service worker, pokud to prohlížeč umí (na file:// se přeskočí)
+if ('serviceWorker' in navigator) {
+  try {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  } catch (e) {}
+}
