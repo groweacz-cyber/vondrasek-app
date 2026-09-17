@@ -1697,7 +1697,12 @@ window.openMalaDopravaDen = function(iso) {
       <button class="btn btn-ghost btn-sm" onclick="closeModal('malaDopravaModal')">✕</button>
     </div>
 
-    <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:16px;">
+    <label style="display:flex; align-items:center; gap:8px; padding:10px 12px; background:var(--card); border-radius:8px; margin-bottom:14px; cursor:pointer; border:1px solid var(--border-c);">
+      <input type="checkbox" id="malaCelyDenNejelo" ${PNS_ROUTES.every(r => vyjimky[r] && vyjimky[r].nejelo) ? 'checked' : ''}>
+      <span style="font-size:13px; font-weight:600;">Celý den nejelo (sníh, kalamita, PNS nevydala)</span>
+    </label>
+
+    <div id="malaRoutesList" style="display:flex; flex-direction:column; gap:6px; margin-bottom:16px; ${PNS_ROUTES.every(r => vyjimky[r] && vyjimky[r].nejelo) ? 'opacity:0.4;' : ''}">
       ${PNS_ROUTES.map(route => {
         const cfg = state.pnsRouteConfig[route];
         const maVyjimku = !!vyjimky[route];
@@ -1860,6 +1865,16 @@ window.openMalaDopravaDen = function(iso) {
   ['malaNakladyRidic','malaNakladyAuto','malaNakladyOstatni'].forEach(id => {
     document.getElementById(id).addEventListener('input', updateZiskPreview);
   });
+
+  document.getElementById('malaCelyDenNejelo').addEventListener('change', (e) => {
+    const checked = e.target.checked;
+    PNS_ROUTES.forEach(route => {
+      document.querySelector(`.mala-edit-nejelo[data-route="${route}"]`).checked = checked;
+    });
+    document.getElementById('malaRoutesList').style.opacity = checked ? '0.4' : '1';
+    updateZiskPreview();
+  });
+
   updateZiskPreview();
 
   document.getElementById('btnMalaUlozit').addEventListener('click', () => {
