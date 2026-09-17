@@ -19,6 +19,7 @@ function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 function loadState() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; } }
 if (!state.lastVozidloPerDriver) state.lastVozidloPerDriver = {};
 if (!state.malaDoprava) state.malaDoprava = {}; // { 'YYYY-MM-DD': { trasy: {'20001':{objizdkaKm:0}}, ridic, nakladyRidic, nakladyAuto, nakladyOstatni } }
+if (state.posledniZaloha === undefined) state.posledniZaloha = null; // ISO timestamp poslední stažené zálohy (null = ještě žádná)
 if (!state.pnsRouteConfig) {
   state.pnsRouteConfig = {};
 }
@@ -381,6 +382,16 @@ function renderDashboard() {
 
     ${isOwner ? `
     <div class="card-panel" style="margin-top:20px;">
+      <h3>💾 Záloha dat</h3>
+      <p class="csub">Data appky žijí jen v tomto prohlížeči — zálohuj pravidelně, ať o nic nepřijdeš.</p>
+      ${renderZalohaStatus()}
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
+        <button class="btn btn-primary btn-sm" id="btnStahnoutZalohu">⬇️ Stáhnout zálohu</button>
+        <button class="btn btn-ghost btn-sm" id="btnObnovitZalohu">⬆️ Obnovit ze zálohy</button>
+        <input type="file" id="obnovaZalohyInput" accept=".json" hidden>
+      </div>
+    </div>
+    <div class="card-panel" style="margin-top:20px;">
       <h3>📋 Aktivní zakázky</h3>
       <p class="csub">Naplánované a probíhající zakázky.</p>
       <div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:8px;">
@@ -389,6 +400,20 @@ function renderDashboard() {
     </div>
     ` : ''}
   `;
+}
+
+// Vrátí HTML se stavem poslední zálohy — žlutě upozorní, když je stará přes 30 dní nebo žádná neproběhla
+function renderZalohaStatus() {
+  if (!state.posledniZaloha) {
+    return `<div class="badge warn">⚠️ Zatím žádná záloha</div>`;
+  }
+  const dny = Math.floor((new Date() - new Date(state.posledniZaloha)) / 86400000);
+  const datumText = new Date(state.posledniZaloha).toLocaleString('cs-CZ');
+  const predText = dny === 0 ? 'dnes' : dny === 1 ? 'před 1 dnem' : `před ${dny} dny`;
+  if (dny > 30) {
+    return `<div class="badge warn">⚠️ Poslední záloha ${datumText} (${predText}) — je čas na novou</div>`;
+  }
+  return `<p style="font-size:12.5px; color:var(--muted);">Poslední záloha: ${datumText} (${predText})</p>`;
 }
 
 function kmPoslednich6Mesicu(jizdy) {
@@ -432,6 +457,35 @@ function bindDashboard() {
     if (!confirm('Smazat všechna ukázková data?\n\nZůstane prázdný systém připravený pro reálná data. Tato akce je nevratná.')) return;
     state.jizdy = []; state.tankovani = []; state.vozidla = []; state.ridici = []; state.zakazky = [];
     saveState(); renderSection('dashboard');
+  });
+
+  document.getElementById('btnStahnoutZalohu').addEventListener('click', () => {
+    state.posledniZaloha = new Date().toISOString();
+    saveState();
+    downloadFile(`vondrasek-zaloha-${toISO(new Date())}.json`, 'application/json;charset=utf-8;', JSON.stringify(state, null, 2));
+    renderSection('dashboard');
+  });
+
+  const obnovaInput = document.getElementById('obnovaZalohyInput');
+  document.getElementById('btnObnovitZalohu').addEventListener('click', () => obnovaInput.click());
+  obnovaInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      let data;
+      try { data = JSON.parse(ev.target.result); } catch { alert('Soubor není platný JSON.'); return; }
+      if (!data || typeof data !== 'object' || !Array.isArray(data.jizdy) || !Array.isArray(data.vozidla) || !Array.isArray(data.ridici)) {
+        alert('Tento soubor nevypadá jako záloha appky Vondrášek — chybí očekávaná data (jízdy, vozidla, řidiči).');
+        return;
+      }
+      if (!confirm('Obnovit ze zálohy PŘEPÍŠE všechna aktuální data v appce. Tato akce je nevratná. Pokračovat?')) return;
+      Object.keys(state).forEach(k => delete state[k]);
+      Object.assign(state, data);
+      saveState();
+      location.reload();
+    };
+    reader.readAsText(file);
   });
 }
 
