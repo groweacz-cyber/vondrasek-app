@@ -334,7 +334,11 @@ function renderDashboard() {
         <h1>Vítej${isOwner ? ', Jardo' : ', ' + (state.driverName||'')}</h1>
         <p>Přehled provozu — aktuální stav systému.</p>
       </div>
-      ${isOwner ? `<div class="page-actions"><button class="btn btn-ghost btn-sm" id="btnResetData" style="border-color:var(--red);color:var(--red);">🗑️ Smazat ukázková data</button></div>` : ''}
+      <div class="page-actions">
+        <button class="btn btn-ghost btn-sm" id="btnDashAddJizda">+ Jízda</button>
+        <button class="btn btn-ghost btn-sm" id="btnDashAddTank">+ Tankování</button>
+        ${isOwner ? `<button class="btn btn-ghost btn-sm" id="btnResetData" style="border-color:var(--red);color:var(--red);">🗑️ Smazat ukázková data</button>` : ''}
+      </div>
     </div>
 
     <div class="metrics">
@@ -502,6 +506,14 @@ function renderDnesekMalaDoprava() {
 function bindDashboard() {
   document.getElementById('dnesMalaDopravaCard')?.addEventListener('click', () => {
     document.querySelector('.nav-item[data-section="mala-doprava"]').click();
+  });
+  document.getElementById('btnDashAddJizda').addEventListener('click', () => {
+    document.querySelector('.nav-item[data-section="jizdy"]').click();
+    openModal('jizdaModal');
+  });
+  document.getElementById('btnDashAddTank').addEventListener('click', () => {
+    document.querySelector('.nav-item[data-section="tankovani"]').click();
+    openModal('tankModal');
   });
 
   const btn = document.getElementById('btnResetData');
