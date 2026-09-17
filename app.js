@@ -20,6 +20,7 @@ function loadState() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)
 if (!state.lastVozidloPerDriver) state.lastVozidloPerDriver = {};
 if (!state.malaDoprava) state.malaDoprava = {}; // { 'YYYY-MM-DD': { trasy: {'20001':{objizdkaKm:0}}, ridic, nakladyRidic, nakladyAuto, nakladyOstatni } }
 if (state.posledniZaloha === undefined) state.posledniZaloha = null; // ISO timestamp poslední stažené zálohy (null = ještě žádná)
+if (state.posledniNotifikace === undefined) state.posledniNotifikace = null; // ISO datum (YYYY-MM-DD) posledního odeslání browser notifikací — max 1x denně
 if (!state.pnsRouteConfig) {
   state.pnsRouteConfig = {};
 }
@@ -257,6 +258,7 @@ function showApp() {
   document.getElementById('userRole').textContent = isOwner ? 'Plný přístup' : 'Vidí jen svoje';
   if (!isOwner) applyDriverView();
   renderSection('dashboard');
+  posliNotifikaceProUpozorneni();
 }
 function applyDriverView() {
   const allowed = ['dashboard', 'jizdy', 'tankovani', 'mala-doprava'];
@@ -403,7 +405,10 @@ function renderDashboard() {
         </table>
       </div>
       <div class="card-panel">
-        <h3>⚠️ Upozornění</h3>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+          <h3 style="margin-bottom:0;">⚠️ Upozornění</h3>
+          ${renderNotifikaceOvladani()}
+        </div>
         <p class="csub">Blížící se termíny.</p>
         ${renderUpozorneni()}
       </div>
@@ -517,6 +522,9 @@ function bindDashboard() {
   document.getElementById('dnesMalaDopravaCard')?.addEventListener('click', () => {
     document.querySelector('.nav-item[data-section="mala-doprava"]').click();
   });
+  document.getElementById('btnZapnoutNotifikace')?.addEventListener('click', () => {
+    Notification.requestPermission().then(() => renderSection('dashboard'));
+  });
   document.getElementById('btnDashAddJizda').addEventListener('click', () => {
     document.querySelector('.nav-item[data-section="jizdy"]').click();
     openModal('jizdaModal');
@@ -564,16 +572,19 @@ function bindDashboard() {
   });
 }
 
-function renderUpozorneni() {
+// Posbírá stejná upozornění, která ukazuje dashboard (renderUpozorneni) — používá se i pro browser notifikace.
+// Pole "dny" = počet dní do termínu (záporné = po termínu); u STK/pojistky/známky/karty řidiče bez přesného
+// vlastního okna dopočítáme dny stejně jako zobrazený počet.
+function ziskatVarovani() {
   const dnes = new Date();
   const varovani = [];
   state.vozidla.forEach(v => {
     const s = daysDiff(v.stk, dnes);
-    if (s <= 60 && s >= 0) varovani.push({ ico:'🔧', text:`STK vozidla ${v.spz} za ${s} dní`, level: s<=30?'err':'warn' });
+    if (s <= 60 && s >= 0) varovani.push({ ico:'🔧', text:`STK vozidla ${v.spz} za ${s} dní`, level: s<=30?'err':'warn', dny: s });
     const p = daysDiff(v.pojistka, dnes);
-    if (p <= 60 && p >= 0) varovani.push({ ico:'🛡️', text:`Pojistka vozidla ${v.spz} za ${p} dní`, level: p<=30?'err':'warn' });
+    if (p <= 60 && p >= 0) varovani.push({ ico:'🛡️', text:`Pojistka vozidla ${v.spz} za ${p} dní`, level: p<=30?'err':'warn', dny: p });
     const dz = daysDiff(v.dalnicniZnamka, dnes);
-    if (dz <= 60 && dz >= 0) varovani.push({ ico:'🛣️', text:`Dálniční známka vozidla ${v.spz} za ${dz} dní`, level: dz<=30?'err':'warn' });
+    if (dz <= 60 && dz >= 0) varovani.push({ ico:'🛣️', text:`Dálniční známka vozidla ${v.spz} za ${dz} dní`, level: dz<=30?'err':'warn', dny: dz });
     if (['Kamion','Tahač'].includes(v.typ)) {
       const t = stazeniVarovani(`Stažení tachografu vozidla ${v.spz}`, v.posledniStazeniTacho, 90);
       if (t) varovani.push({ ico:'📡', ...t });
@@ -581,10 +592,36 @@ function renderUpozorneni() {
   });
   state.ridici.forEach(r => {
     const k = daysDiff(r.kartaRidice, dnes);
-    if (k <= 60 && k >= 0) varovani.push({ ico:'💳', text:`Karta řidiče ${r.jmeno} vyprší za ${k} dní`, level:'warn' });
+    if (k <= 60 && k >= 0) varovani.push({ ico:'💳', text:`Karta řidiče ${r.jmeno} vyprší za ${k} dní`, level:'warn', dny: k });
     const c = stazeniVarovani(`Stažení karty řidiče ${r.jmeno}`, r.posledniStazeniKarty, 28);
     if (c) varovani.push({ ico:'📥', ...c });
   });
+  return varovani;
+}
+
+// Tlačítko/stav pro browser notifikace — Notification nemusí v prohlížeči existovat (starší prohlížeče, iOS bez PWA)
+function renderNotifikaceOvladani() {
+  if (!('Notification' in window)) return '';
+  if (Notification.permission === 'granted') return `<span class="badge ok">🔔 Upozornění zapnuta</span>`;
+  if (Notification.permission === 'denied') return `<span class="badge err" title="Povolení bylo zablokováno v prohlížeči">🔔 Upozornění blokována</span>`;
+  return `<button class="btn btn-ghost btn-sm" id="btnZapnoutNotifikace">🔔 Zapnout upozornění</button>`;
+}
+
+// Projde stejná upozornění jako dashboard a pro ta s termínem do 7 dní (nebo prošlá) pošle browser notifikaci — max 1x denně
+function posliNotifikaceProUpozorneni() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const dnesIso = toISO(new Date());
+  if (state.posledniNotifikace === dnesIso) return;
+  const urgentni = ziskatVarovani().filter(v => typeof v.dny === 'number' && v.dny <= 7);
+  urgentni.forEach(v => {
+    try { new Notification('Vondrášek — Provozní systém', { body: v.text, icon: 'icon-192.png' }); } catch (e) {}
+  });
+  state.posledniNotifikace = dnesIso;
+  saveState();
+}
+
+function renderUpozorneni() {
+  const varovani = ziskatVarovani();
   if (!varovani.length) return `<div class="empty-state"><div class="empty-ic">✅</div>Žádná upozornění.</div>`;
   return varovani.map(v => `
     <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--card);border-radius:var(--radius-sm);margin-bottom:8px;border-left:3px solid ${v.level==='err'?'var(--red)':'var(--amber)'};">
@@ -2383,9 +2420,9 @@ function stazeniVarovani(popis, posledniIso, intervalDny) {
   const deadline = toISO(addDays(new Date(posledniIso), intervalDny));
   const d = daysDiff(deadline, new Date());
   if (d > 7) return null;
-  if (d < 0) return { text: `${popis} — prošlo před ${Math.abs(d)} ${Math.abs(d)===1?'dnem':czechDny(Math.abs(d))}`, level: 'err' };
-  if (d === 0) return { text: `${popis} — dnes`, level: 'err' };
-  return { text: `${popis} — za ${d} ${czechDny(d)}`, level: d<=3?'err':'warn' };
+  if (d < 0) return { text: `${popis} — prošlo před ${Math.abs(d)} ${Math.abs(d)===1?'dnem':czechDny(Math.abs(d))}`, level: 'err', dny: d };
+  if (d === 0) return { text: `${popis} — dnes`, level: 'err', dny: d };
+  return { text: `${popis} — za ${d} ${czechDny(d)}`, level: d<=3?'err':'warn', dny: d };
 }
 function posledni12Mesicu() {
   const mesice = ['Leden','Únor','Březen','Duben','Květen','Červen','Červenec','Srpen','Září','Říjen','Listopad','Prosinec'];
