@@ -498,10 +498,16 @@ function renderUpozorneni() {
     if (s <= 60 && s >= 0) varovani.push({ ico:'🔧', text:`STK vozidla ${v.spz} za ${s} dní`, level: s<=30?'err':'warn' });
     const p = daysDiff(v.pojistka, dnes);
     if (p <= 60 && p >= 0) varovani.push({ ico:'🛡️', text:`Pojistka vozidla ${v.spz} za ${p} dní`, level: p<=30?'err':'warn' });
+    if (['Kamion','Tahač'].includes(v.typ)) {
+      const t = stazeniVarovani(`Stažení tachografu vozidla ${v.spz}`, v.posledniStazeniTacho, 90);
+      if (t) varovani.push({ ico:'📡', ...t });
+    }
   });
   state.ridici.forEach(r => {
     const k = daysDiff(r.kartaRidice, dnes);
     if (k <= 60 && k >= 0) varovani.push({ ico:'💳', text:`Karta řidiče ${r.jmeno} vyprší za ${k} dní`, level:'warn' });
+    const c = stazeniVarovani(`Stažení karty řidiče ${r.jmeno}`, r.posledniStazeniKarty, 28);
+    if (c) varovani.push({ ico:'📥', ...c });
   });
   if (!varovani.length) return `<div class="empty-state"><div class="empty-ic">✅</div>Žádná upozornění.</div>`;
   return varovani.map(v => `
@@ -964,21 +970,25 @@ function renderVozidla() {
     </div>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>SPZ</th><th>Typ</th><th>Značka</th><th>STK</th><th>Pojistka</th><th>Poznámka</th><th></th></tr></thead>
+        <thead><tr><th>SPZ</th><th>Typ</th><th>Značka</th><th>STK</th><th>Pojistka</th><th>Tachograf</th><th>Poznámka</th><th></th></tr></thead>
         <tbody>
-          ${state.vozidla.length===0 ? `<tr><td colspan="7"><div class="empty-state"><div class="empty-ic">🚛</div>Žádná vozidla — přidej první.</div></td></tr>` :
-          state.vozidla.map(v=>`
+          ${state.vozidla.length===0 ? `<tr><td colspan="8"><div class="empty-state"><div class="empty-ic">🚛</div>Žádná vozidla — přidej první.</div></td></tr>` :
+          state.vozidla.map(v=>{
+            const maTacho = ['Kamion','Tahač'].includes(v.typ);
+            return `
             <tr>
               <td><b>${v.spz}</b></td><td>${v.typ}</td><td>${v.znacka}</td>
               <td>${formatDate(v.stk)} ${termBadge(v.stk)}</td>
               <td>${formatDate(v.pojistka)} ${termBadge(v.pojistka)}</td>
+              <td>${maTacho ? (v.posledniStazeniTacho ? formatDate(v.posledniStazeniTacho)+' '+stazeniBadge(v.posledniStazeniTacho,90) : '<span style="color:var(--dim);font-size:12px;">nikdy</span>') : '<span style="color:var(--dim);font-size:12px;">—</span>'}</td>
               <td style="color:var(--muted);font-size:12.5px;">${v.poznamka||'—'}</td>
               <td style="display:flex;gap:6px;">
+                ${maTacho ? `<button class="btn btn-ghost btn-sm" onclick="stazenoTachoDnes(${v.id})">📡 Staženo dnes</button>` : ''}
                 <button class="btn btn-ghost btn-sm" onclick="editVozidlo(${v.id})">Upravit</button>
                 <button class="btn btn-danger btn-sm" onclick="deleteVozidlo(${v.id})">Smazat</button>
               </td>
             </tr>
-          `).join('')}
+          `;}).join('')}
         </tbody>
       </table>
     </div>
@@ -1006,6 +1016,11 @@ function renderVozidloModal(v={}) {
             <div class="form-row"><label>STK platná do *</label><input type="date" name="stk" required value="${v.stk||''}"></div>
             <div class="form-row"><label>Pojistka platná do *</label><input type="date" name="pojistka" required value="${v.pojistka||''}"></div>
           </div>
+          <div class="form-row" id="tachoFieldWrap" style="${['Kamion','Tahač'].includes(v.typ)?'':'display:none;'}">
+            <label>Poslední stažení tachografu</label>
+            <input type="date" name="posledniStazeniTacho" value="${v.posledniStazeniTacho||''}">
+            <span style="font-size:11.5px; color:var(--dim); margin-top:4px; display:block;">Povinné stahovat každých 90 dní. Jen u kamionu a tahače.</span>
+          </div>
           <div class="form-row">
             <label>Amortizace (Kč/km)</label>
             <input type="number" name="amortizaceKm" step="0.1" min="0" value="${v.amortizaceKm||''}" placeholder="např. 3.0">
@@ -1023,10 +1038,16 @@ function renderVozidloModal(v={}) {
 }
 function bindVozidla() {
   document.getElementById('btnAddVozidlo').addEventListener('click', () => openModal('vozidloModal'));
+  const typSelect = document.querySelector('#vozidloForm [name="typ"]');
+  if (typSelect) {
+    typSelect.addEventListener('change', () => {
+      document.getElementById('tachoFieldWrap').style.display = ['Kamion','Tahač'].includes(typSelect.value) ? '' : 'none';
+    });
+  }
   document.getElementById('vozidloForm').addEventListener('submit', (e) => {
     e.preventDefault(); const fd = new FormData(e.target);
     const editId = fd.get('editId');
-    const data = { spz: fd.get('spz'), typ: fd.get('typ'), znacka: fd.get('znacka'), stk: fd.get('stk'), pojistka: fd.get('pojistka'), poznamka: fd.get('poznamka'), amortizaceKm: +fd.get('amortizaceKm') || 0 };
+    const data = { spz: fd.get('spz'), typ: fd.get('typ'), znacka: fd.get('znacka'), stk: fd.get('stk'), pojistka: fd.get('pojistka'), poznamka: fd.get('poznamka'), amortizaceKm: +fd.get('amortizaceKm') || 0, posledniStazeniTacho: fd.get('posledniStazeniTacho') || null };
     if (editId) {
       const idx = state.vozidla.findIndex(v=>v.id===+editId);
       if (idx>=0) state.vozidla[idx] = { ...state.vozidla[idx], ...data };
@@ -1045,6 +1066,12 @@ window.editVozidlo = function(id) {
   openModal('vozidloModal');
 };
 window.deleteVozidlo = function(id) { if(!confirm('Smazat vozidlo?')) return; state.vozidla = state.vozidla.filter(v=>v.id!==id); saveState(); renderSection('vozidla'); };
+window.stazenoTachoDnes = function(id) {
+  const v = state.vozidla.find(v=>v.id===id);
+  if (!v) return;
+  v.posledniStazeniTacho = toISO(new Date());
+  saveState(); renderSection('vozidla');
+};
 
 // ==========================================================
 // ŘIDIČI — CRUD + EDITACE
@@ -1057,9 +1084,9 @@ function renderRidici() {
     </div>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Jméno</th><th>Telefon</th><th>Skupina</th><th style="text-align:right">Jízd</th><th style="text-align:right">km celkem</th><th style="text-align:right">Zisk</th><th>Karty</th><th></th></tr></thead>
+        <thead><tr><th>Jméno</th><th>Telefon</th><th>Skupina</th><th style="text-align:right">Jízd</th><th style="text-align:right">km celkem</th><th style="text-align:right">Zisk</th><th>Karty</th><th>Stažení karty</th><th></th></tr></thead>
         <tbody>
-          ${state.ridici.length===0 ? `<tr><td colspan="8"><div class="empty-state"><div class="empty-ic">👷</div>Žádní řidiči — přidej prvního.</div></td></tr>` :
+          ${state.ridici.length===0 ? `<tr><td colspan="9"><div class="empty-state"><div class="empty-ic">👷</div>Žádní řidiči — přidej prvního.</div></td></tr>` :
           state.ridici.map(r=>{
             const stats = ridicStats(r);
             return `
@@ -1071,8 +1098,10 @@ function renderRidici() {
               <td style="text-align:right">${stats.kmCelkem.toLocaleString('cs-CZ')}</td>
               <td style="text-align:right">${stats.pocetJizdSFinance>0 ? `<b style="color:${stats.zisk>=0?'var(--green)':'var(--red)'};">${stats.zisk.toLocaleString('cs-CZ')} Kč</b>` : '<span style="color:var(--dim);font-size:12px;">—</span>'}</td>
               <td>${termBadge(r.kartaRidice)||''} ${termBadge(r.profesniPrukaz)||''} ${!termBadge(r.kartaRidice)&&!termBadge(r.profesniPrukaz)?'<span class="badge ok">OK</span>':''}</td>
+              <td>${r.posledniStazeniKarty ? formatDate(r.posledniStazeniKarty)+' '+stazeniBadge(r.posledniStazeniKarty,28) : '<span style="color:var(--dim);font-size:12px;">nikdy</span>'}</td>
               <td style="display:flex;gap:6px;">
                 <button class="btn btn-ghost btn-sm" onclick="openRidicDetail(${r.id})">📊 Přehled</button>
+                <button class="btn btn-ghost btn-sm" onclick="stazenoKartaDnes(${r.id})">📥 Staženo dnes</button>
                 <button class="btn btn-ghost btn-sm" onclick="editRidic(${r.id})">Upravit</button>
                 <button class="btn btn-danger btn-sm" onclick="deleteRidic(${r.id})">Smazat</button>
               </td>
@@ -1198,6 +1227,11 @@ function renderRidicModal(r={}) {
             <div class="form-row"><label>Profesní průkaz platný do *</label><input type="date" name="profesniPrukaz" required value="${r.profesniPrukaz||''}"></div>
           </div>
           <div class="form-row">
+            <label>Poslední stažení karty řidiče</label>
+            <input type="date" name="posledniStazeniKarty" value="${r.posledniStazeniKarty||''}">
+            <span style="font-size:11.5px; color:var(--dim); margin-top:4px; display:block;">Povinné stahovat každých 28 dní.</span>
+          </div>
+          <div class="form-row">
             <label>PIN pro přihlášení do appky (4 číslice) *</label>
             <input type="text" name="pin" inputmode="numeric" maxlength="4" required value="${r.pin||''}" placeholder="např. 1234" style="letter-spacing:4px; font-weight:700;">
             <span id="ridicPinError" style="display:none; color:var(--red); font-size:12px;">Tento PIN už používá jiný řidič — zvol jiný.</span>
@@ -1225,7 +1259,7 @@ function bindRidici() {
       document.getElementById('ridicPinError').style.display = 'block';
       return;
     }
-    const data = { jmeno: fd.get('jmeno'), telefon: fd.get('telefon'), skupina: fd.get('skupina'), kartaRidice: fd.get('kartaRidice'), profesniPrukaz: fd.get('profesniPrukaz'), pin };
+    const data = { jmeno: fd.get('jmeno'), telefon: fd.get('telefon'), skupina: fd.get('skupina'), kartaRidice: fd.get('kartaRidice'), profesniPrukaz: fd.get('profesniPrukaz'), posledniStazeniKarty: fd.get('posledniStazeniKarty') || null, pin };
     if (editId) {
       const idx = state.ridici.findIndex(r=>r.id===+editId);
       if (idx>=0) state.ridici[idx] = { ...state.ridici[idx], ...data };
@@ -1244,6 +1278,12 @@ window.editRidic = function(id) {
   openModal('ridicModal');
 };
 window.deleteRidic = function(id) { if(!confirm('Smazat řidiče?')) return; state.ridici = state.ridici.filter(r=>r.id!==id); saveState(); renderSection('ridici'); };
+window.stazenoKartaDnes = function(id) {
+  const r = state.ridici.find(r=>r.id===id);
+  if (!r) return;
+  r.posledniStazeniKarty = toISO(new Date());
+  saveState(); renderSection('ridici');
+};
 
 // ==========================================================
 // ZAKÁZKY — barevné karty + filtr + CRUD + EDITACE
@@ -2134,6 +2174,30 @@ function termBadge(iso) {
   if (d <= 30) return `<span class="badge err">${d}d</span>`;
   if (d <= 60) return `<span class="badge warn">${d}d</span>`;
   return '';
+}
+
+// termBadge pro další povinné stažení (karta řidiče / tachograf) — počítá deadline z posledního stažení + interval
+function stazeniBadge(posledniIso, intervalDny) {
+  if (!posledniIso) return '';
+  return termBadge(toISO(addDays(new Date(posledniIso), intervalDny)));
+}
+
+// Skloňování "den/dny/dní" podle počtu (1 den, 2-4 dny, 5+ dní)
+function czechDny(n) {
+  if (n === 1) return 'den';
+  if (n >= 2 && n <= 4) return 'dny';
+  return 'dní';
+}
+
+// Vrátí { text, level } když se blíží (do 7 dní) nebo prošel termín dalšího stažení, jinak null
+function stazeniVarovani(popis, posledniIso, intervalDny) {
+  if (!posledniIso) return null;
+  const deadline = toISO(addDays(new Date(posledniIso), intervalDny));
+  const d = daysDiff(deadline, new Date());
+  if (d > 7) return null;
+  if (d < 0) return { text: `${popis} — prošlo před ${Math.abs(d)} ${Math.abs(d)===1?'dnem':czechDny(Math.abs(d))}`, level: 'err' };
+  if (d === 0) return { text: `${popis} — dnes`, level: 'err' };
+  return { text: `${popis} — za ${d} ${czechDny(d)}`, level: d<=3?'err':'warn' };
 }
 function posledni12Mesicu() {
   const mesice = ['Leden','Únor','Březen','Duben','Květen','Červen','Červenec','Srpen','Září','Říjen','Listopad','Prosinec'];
