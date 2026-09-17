@@ -19,18 +19,6 @@ function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 function loadState() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; } }
 if (!state.lastVozidloPerDriver) state.lastVozidloPerDriver = {};
 if (!state.malaDoprava) state.malaDoprava = {}; // { 'YYYY-MM-DD': { trasy: {'20001':{objizdkaKm:0}}, ridic, nakladyRidic, nakladyAuto, nakladyOstatni } }
-// Jednorázová migrace: toISO() dřív počítal datum přes UTC, což v ČR (UTC+1/+2) posouvalo
-// uložené klíče state.malaDoprava o den zpět. Posuneme je o den dopředu (inverze staré chyby).
-if (!state.malaDopravaDateFixApplied) {
-  const opravene = {};
-  Object.keys(state.malaDoprava).forEach(staryIso => {
-    const [y, m, d] = staryIso.split('-').map(Number);
-    opravene[toISO(new Date(y, m - 1, d + 1, 12))] = state.malaDoprava[staryIso];
-  });
-  state.malaDoprava = opravene;
-  state.malaDopravaDateFixApplied = true;
-  saveState();
-}
 if (state.posledniZaloha === undefined) state.posledniZaloha = null; // ISO timestamp poslední stažené zálohy (null = ještě žádná)
 if (!state.pnsRouteConfig) {
   state.pnsRouteConfig = {};
@@ -48,6 +36,19 @@ function ensureRouteConfig() {
 
 const PNS_ROUTES = ['20001','20004','20011','20016','20041','20042','20043','20044','20045','20058','20063','20064','20066'];
 ensureRouteConfig();
+
+// Jednorázová migrace: toISO() dřív počítal datum přes UTC, což v ČR (UTC+1/+2) posouvalo
+// uložené klíče state.malaDoprava o den zpět. Posuneme je o den dopředu (inverze staré chyby).
+if (!state.malaDopravaDateFixApplied) {
+  const opravene = {};
+  Object.keys(state.malaDoprava).forEach(staryIso => {
+    const [y, m, d] = staryIso.split('-').map(Number);
+    opravene[toISO(new Date(y, m - 1, d + 1, 12))] = state.malaDoprava[staryIso];
+  });
+  state.malaDoprava = opravene;
+  state.malaDopravaDateFixApplied = true;
+  saveState();
+}
 
 // ---------- ČESKÉ STÁTNÍ SVÁTKY ----------
 function easterSunday(year) {
@@ -847,28 +848,38 @@ function renderTankovani() {
       <div class="page-actions"><button class="btn btn-primary" id="btnAddTank">+ Nové tankování</button></div>
     </div>
     <div class="table-wrap">
+      <div class="table-toolbar">
+        <select id="tankMesic">
+          <option value="">Všechny měsíce</option>
+          ${posledni12Mesicu().map(m => `<option value="${m.value}">${m.label}</option>`).join('')}
+        </select>
+        <div class="spacer"></div>
+        <button class="btn btn-ghost btn-sm" id="btnExportTank">📥 Export CSV</button>
+      </div>
       <table class="data-table">
         <thead><tr><th>Datum</th><th>Vozidlo</th><th>Řidič</th><th>Místo</th><th style="text-align:right">Litry</th><th style="text-align:right">Cena</th><th>Účtenka</th><th></th></tr></thead>
-        <tbody>
-          ${state.tankovani.length===0 ? `<tr><td colspan="8"><div class="empty-state"><div class="empty-ic">⛽</div>Žádné záznamy.</div></td></tr>` :
-          state.tankovani.map(t=>`
-            <tr>
-              <td>${formatDate(t.datum)}</td><td>${t.vozidlo}</td><td>${t.ridic}</td><td>${t.misto}</td>
-              <td style="text-align:right">${t.litry} l</td>
-              <td style="text-align:right"><b>${(+t.cenaCelkem).toLocaleString('cs-CZ')} Kč</b></td>
-              <td>${t.uctenka ? `<img src="${t.uctenka}" class="receipt-thumb" onclick="showReceipt('${t.uctenka}')" alt="Účtenka">` : '<span style="color:var(--dim);font-size:12px;">—</span>'}</td>
-              <td style="display:flex;gap:6px;">
-                <button class="btn btn-ghost btn-sm" onclick="editTank(${t.id})">Upravit</button>
-                <button class="btn btn-danger btn-sm" onclick="deleteTank(${t.id})">Smazat</button>
-              </td>
-            </tr>
-          `).join('')}
-        </tbody>
+        <tbody id="tankBody">${renderTankRows(state.tankovani)}</tbody>
       </table>
     </div>
     ${renderTankModal()}
     ${renderReceiptLightbox()}
   `;
+}
+
+function renderTankRows(list) {
+  if (!list.length) return `<tr><td colspan="8"><div class="empty-state"><div class="empty-ic">⛽</div>Žádné záznamy.</div></td></tr>`;
+  return list.map(t=>`
+    <tr>
+      <td>${formatDate(t.datum)}</td><td>${t.vozidlo}</td><td>${t.ridic}</td><td>${t.misto}</td>
+      <td style="text-align:right">${t.litry} l</td>
+      <td style="text-align:right"><b>${(+t.cenaCelkem).toLocaleString('cs-CZ')} Kč</b></td>
+      <td>${t.uctenka ? `<img src="${t.uctenka}" class="receipt-thumb" onclick="showReceipt('${t.uctenka}')" alt="Účtenka">` : '<span style="color:var(--dim);font-size:12px;">—</span>'}</td>
+      <td style="display:flex;gap:6px;">
+        <button class="btn btn-ghost btn-sm" onclick="editTank(${t.id})">Upravit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteTank(${t.id})">Smazat</button>
+      </td>
+    </tr>
+  `).join('');
 }
 function renderReceiptLightbox() {
   return `
@@ -994,6 +1005,24 @@ function bindTankovani() {
     wireTankModal();
     openModal('tankModal');
   });
+
+  document.getElementById('tankMesic').addEventListener('change', (e) => {
+    const m = e.target.value;
+    const list = m ? state.tankovani.filter(t => t.datum.startsWith(m)) : state.tankovani;
+    document.getElementById('tankBody').innerHTML = renderTankRows(list);
+  });
+  document.getElementById('btnExportTank').addEventListener('click', exportTankovaniCSV);
+}
+
+function exportTankovaniCSV() {
+  const mesic = document.getElementById('tankMesic')?.value || '';
+  const list = mesic ? state.tankovani.filter(t => t.datum.startsWith(mesic)) : state.tankovani;
+  const rows = [['Datum','Vozidlo','Řidič','Místo','Litry','Cena celkem','Cena za litr'], ...list.map(t => {
+    const cenaZaLitr = (+t.litry) > 0 ? (+t.cenaCelkem / +t.litry).toFixed(2) : '';
+    return [t.datum, t.vozidlo, t.ridic, t.misto, t.litry, t.cenaCelkem, cenaZaLitr];
+  })];
+  const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  downloadFile('tankovani.csv','text/csv;charset=utf-8;','﻿'+csv);
 }
 window.editTank = function(id) {
   const t = state.tankovani.find(t=>t.id===id);
