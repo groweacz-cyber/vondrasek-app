@@ -498,6 +498,8 @@ function renderUpozorneni() {
     if (s <= 60 && s >= 0) varovani.push({ ico:'🔧', text:`STK vozidla ${v.spz} za ${s} dní`, level: s<=30?'err':'warn' });
     const p = daysDiff(v.pojistka, dnes);
     if (p <= 60 && p >= 0) varovani.push({ ico:'🛡️', text:`Pojistka vozidla ${v.spz} za ${p} dní`, level: p<=30?'err':'warn' });
+    const dz = daysDiff(v.dalnicniZnamka, dnes);
+    if (dz <= 60 && dz >= 0) varovani.push({ ico:'🛣️', text:`Dálniční známka vozidla ${v.spz} za ${dz} dní`, level: dz<=30?'err':'warn' });
     if (['Kamion','Tahač'].includes(v.typ)) {
       const t = stazeniVarovani(`Stažení tachografu vozidla ${v.spz}`, v.posledniStazeniTacho, 90);
       if (t) varovani.push({ ico:'📡', ...t });
@@ -970,9 +972,9 @@ function renderVozidla() {
     </div>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>SPZ</th><th>Typ</th><th>Značka</th><th>STK</th><th>Pojistka</th><th>Tachograf</th><th>Poznámka</th><th></th></tr></thead>
+        <thead><tr><th>SPZ</th><th>Typ</th><th>Značka</th><th>STK</th><th>Pojistka</th><th>Dálniční známka</th><th>Tachograf</th><th>Poznámka</th><th></th></tr></thead>
         <tbody>
-          ${state.vozidla.length===0 ? `<tr><td colspan="8"><div class="empty-state"><div class="empty-ic">🚛</div>Žádná vozidla — přidej první.</div></td></tr>` :
+          ${state.vozidla.length===0 ? `<tr><td colspan="9"><div class="empty-state"><div class="empty-ic">🚛</div>Žádná vozidla — přidej první.</div></td></tr>` :
           state.vozidla.map(v=>{
             const maTacho = ['Kamion','Tahač'].includes(v.typ);
             return `
@@ -980,6 +982,7 @@ function renderVozidla() {
               <td><b>${v.spz}</b></td><td>${v.typ}</td><td>${v.znacka}</td>
               <td>${formatDate(v.stk)} ${termBadge(v.stk)}</td>
               <td>${formatDate(v.pojistka)} ${termBadge(v.pojistka)}</td>
+              <td>${v.dalnicniZnamka ? formatDate(v.dalnicniZnamka)+' '+termBadge(v.dalnicniZnamka) : '<span style="color:var(--dim);font-size:12px;">—</span>'}</td>
               <td>${maTacho ? (v.posledniStazeniTacho ? formatDate(v.posledniStazeniTacho)+' '+stazeniBadge(v.posledniStazeniTacho,90) : '<span style="color:var(--dim);font-size:12px;">nikdy</span>') : '<span style="color:var(--dim);font-size:12px;">—</span>'}</td>
               <td style="color:var(--muted);font-size:12.5px;">${v.poznamka||'—'}</td>
               <td style="display:flex;gap:6px;">
@@ -1016,6 +1019,7 @@ function renderVozidloModal(v={}) {
             <div class="form-row"><label>STK platná do *</label><input type="date" name="stk" required value="${v.stk||''}"></div>
             <div class="form-row"><label>Pojistka platná do *</label><input type="date" name="pojistka" required value="${v.pojistka||''}"></div>
           </div>
+          <div class="form-row"><label>Dálniční známka platná do</label><input type="date" name="dalnicniZnamka" value="${v.dalnicniZnamka||''}"></div>
           <div class="form-row" id="tachoFieldWrap" style="${['Kamion','Tahač'].includes(v.typ)?'':'display:none;'}">
             <label>Poslední stažení tachografu</label>
             <input type="date" name="posledniStazeniTacho" value="${v.posledniStazeniTacho||''}">
@@ -1047,7 +1051,7 @@ function bindVozidla() {
   document.getElementById('vozidloForm').addEventListener('submit', (e) => {
     e.preventDefault(); const fd = new FormData(e.target);
     const editId = fd.get('editId');
-    const data = { spz: fd.get('spz'), typ: fd.get('typ'), znacka: fd.get('znacka'), stk: fd.get('stk'), pojistka: fd.get('pojistka'), poznamka: fd.get('poznamka'), amortizaceKm: +fd.get('amortizaceKm') || 0, posledniStazeniTacho: fd.get('posledniStazeniTacho') || null };
+    const data = { spz: fd.get('spz'), typ: fd.get('typ'), znacka: fd.get('znacka'), stk: fd.get('stk'), pojistka: fd.get('pojistka'), dalnicniZnamka: fd.get('dalnicniZnamka') || null, poznamka: fd.get('poznamka'), amortizaceKm: +fd.get('amortizaceKm') || 0, posledniStazeniTacho: fd.get('posledniStazeniTacho') || null };
     if (editId) {
       const idx = state.vozidla.findIndex(v=>v.id===+editId);
       if (idx>=0) state.vozidla[idx] = { ...state.vozidla[idx], ...data };
