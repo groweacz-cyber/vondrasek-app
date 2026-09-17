@@ -19,6 +19,18 @@ function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 function loadState() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; } }
 if (!state.lastVozidloPerDriver) state.lastVozidloPerDriver = {};
 if (!state.malaDoprava) state.malaDoprava = {}; // { 'YYYY-MM-DD': { trasy: {'20001':{objizdkaKm:0}}, ridic, nakladyRidic, nakladyAuto, nakladyOstatni } }
+// Jednorázová migrace: toISO() dřív počítal datum přes UTC, což v ČR (UTC+1/+2) posouvalo
+// uložené klíče state.malaDoprava o den zpět. Posuneme je o den dopředu (inverze staré chyby).
+if (!state.malaDopravaDateFixApplied) {
+  const opravene = {};
+  Object.keys(state.malaDoprava).forEach(staryIso => {
+    const [y, m, d] = staryIso.split('-').map(Number);
+    opravene[toISO(new Date(y, m - 1, d + 1, 12))] = state.malaDoprava[staryIso];
+  });
+  state.malaDoprava = opravene;
+  state.malaDopravaDateFixApplied = true;
+  saveState();
+}
 if (state.posledniZaloha === undefined) state.posledniZaloha = null; // ISO timestamp poslední stažené zálohy (null = ještě žádná)
 if (!state.pnsRouteConfig) {
   state.pnsRouteConfig = {};
@@ -48,7 +60,7 @@ function easterSunday(year) {
   return new Date(year, month-1, day);
 }
 function addDays(date, n) { const d = new Date(date); d.setDate(d.getDate()+n); return d; }
-function toISO(date) { return date.toISOString().slice(0,10); }
+function toISO(date) { const y=date.getFullYear(), m=String(date.getMonth()+1).padStart(2,'0'), d=String(date.getDate()).padStart(2,'0'); return `${y}-${m}-${d}`; }
 
 function czechHolidays(year) {
   const easter = easterSunday(year);
@@ -336,6 +348,8 @@ function renderDashboard() {
       <div class="metric"><div class="m-label">Náklady PHM</div><div class="m-value">${nakladyPHM.toLocaleString('cs-CZ')} Kč</div><div class="m-delta neutral">celkem</div></div>
     </div>
 
+    ${renderDnesekMalaDoprava()}
+
     <!-- GRAF -->
     <div class="card-panel" style="margin-bottom:20px;">
       <h3>📊 Najeté km — posledních 6 měsíců</h3>
@@ -451,7 +465,45 @@ function zakazkaKarta(z) {
   `;
 }
 
+// Karta "Malá doprava dnes" — kdo dnes jede kterou trasu (podle stálého řidiče a výjimek)
+function renderDnesekMalaDoprava() {
+  const todayIso = toISO(new Date());
+  let body;
+  if (!isDrivingDay(todayIso)) {
+    const duvod = holidayName(todayIso) || 'neděle';
+    body = `<p class="csub" style="margin-bottom:0;">Dnes se nejede — ${duvod}.</p>`;
+  } else {
+    const podleRidice = {};
+    const bezRidice = [];
+    PNS_ROUTES.forEach(route => {
+      const eff = efektivniTrasaDen(route, todayIso);
+      if (eff.nejelo) return;
+      if (eff.ridic) podleRidice[eff.ridic] = (podleRidice[eff.ridic]||0) + 1;
+      else bezRidice.push(route);
+    });
+    const radky = Object.entries(podleRidice).map(([r,c]) => `
+      <div style="display:flex; justify-content:space-between; padding:4px 0; font-size:13px;">
+        <span>👷 ${r}</span><span style="color:var(--muted);">${c} ${czechTras(c)}</span>
+      </div>`).join('') || `<p style="font-size:12.5px; color:var(--dim); font-style:italic;">Žádné trase není přiřazen stálý řidič.</p>`;
+    const bezRidiceHtml = bezRidice.length ? `
+      <div style="margin-top:10px; padding:8px 10px; background:rgba(245,158,11,0.12); border-radius:8px; color:var(--amber); font-size:12.5px;">
+        ⚠️ Bez řidiče: ${bezRidice.join(', ')}
+      </div>` : '';
+    body = `<p class="csub">Dnes se jede, ${PNS_ROUTES.length} tras.</p>${radky}${bezRidiceHtml}`;
+  }
+  return `
+    <div class="card-panel" style="margin-bottom:20px; cursor:pointer;" id="dnesMalaDopravaCard">
+      <h3>📰 Malá doprava dnes</h3>
+      ${body}
+    </div>
+  `;
+}
+
 function bindDashboard() {
+  document.getElementById('dnesMalaDopravaCard')?.addEventListener('click', () => {
+    document.querySelector('.nav-item[data-section="mala-doprava"]').click();
+  });
+
   const btn = document.getElementById('btnResetData');
   if (!btn) return;
   btn.addEventListener('click', () => {
@@ -2225,6 +2277,12 @@ function czechDny(n) {
   if (n === 1) return 'den';
   if (n >= 2 && n <= 4) return 'dny';
   return 'dní';
+}
+// Skloňování "trasa/trasy/tras" podle počtu
+function czechTras(n) {
+  if (n === 1) return 'trasa';
+  if (n >= 2 && n <= 4) return 'trasy';
+  return 'tras';
 }
 
 // Vrátí { text, level } když se blíží (do 7 dní) nebo prošel termín dalšího stažení, jinak null
