@@ -1440,6 +1440,10 @@ function renderMalaDoprava() {
         <h3 style="margin:0;">${monthNames[month]} ${year}</h3>
         <button class="btn btn-ghost btn-sm" id="btnMesicDal">Další →</button>
       </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
+        <button class="btn btn-ghost btn-sm" id="btnExportMalaMesic">📥 Export měsíce (CSV)</button>
+        <button class="btn btn-ghost btn-sm" id="btnExportMalaVyjimky">📥 Export výjimek (CSV)</button>
+      </div>
       <p class="csub" style="margin-bottom:14px;">Trasy jedou automaticky se stálým řidičem. Klikni na den jen když nastala výjimka — objížďka, zástup, nebo že trasa nejela.</p>
       ${renderMalaDopravaCalendar(year, month)}
       <div style="display:flex; gap:18px; flex-wrap:wrap; margin-top:16px; padding-top:14px; border-top:1px solid var(--border-c); font-size:11.5px; color:var(--muted);">
@@ -1952,7 +1956,70 @@ window.openTrasaDetail = function(route) {
 function bindMalaDoprava() {
   document.getElementById('btnMesicPred').addEventListener('click', () => { malaDopravaMonthOffset--; renderSection('mala-doprava'); });
   document.getElementById('btnMesicDal').addEventListener('click', () => { malaDopravaMonthOffset++; renderSection('mala-doprava'); });
+  document.getElementById('btnExportMalaMesic').addEventListener('click', exportMalaDopravaMesicCSV);
+  document.getElementById('btnExportMalaVyjimky').addEventListener('click', exportMalaDopravaVyjimkyCSV);
   bindHromadnaObjizdka();
+}
+
+// Aktuálně zobrazený měsíc v kalendáři malé dopravy (rok, měsíc 0-11, počet dní)
+function malaDopravaAktualniMesic() {
+  const now = new Date();
+  const viewDate = new Date(now.getFullYear(), now.getMonth() + malaDopravaMonthOffset, 1);
+  const year = viewDate.getFullYear(), month = viewDate.getMonth();
+  return { year, month, daysInMonth: new Date(year, month+1, 0).getDate() };
+}
+
+// Export k fakturaci PNS — jeden řádek na trasu, součty za zobrazený měsíc
+function exportMalaDopravaMesicCSV() {
+  const { year, month, daysInMonth } = malaDopravaAktualniMesic();
+  const rows = [['Trasa','Cenový model','Stálý řidič','Dní odjeto','Dní nejelo','Km základ','Km objížďky','Km celkem','Příjem Kč']];
+  let sumOdjeto=0, sumNejelo=0, sumKmZaklad=0, sumKmObjizdka=0, sumKmCelkem=0, sumPrijem=0;
+
+  PNS_ROUTES.forEach(route => {
+    const cfg = state.pnsRouteConfig[route];
+    let dnyOdjeto=0, dnyNejelo=0, kmZaklad=0, kmObjizdka=0, prijem=0;
+    for (let d=1; d<=daysInMonth; d++) {
+      const iso = toISO(new Date(year, month, d));
+      if (!isDrivingDay(iso)) continue;
+      const eff = efektivniTrasaDen(route, iso);
+      if (eff.nejelo) { dnyNejelo++; continue; }
+      dnyOdjeto++;
+      kmZaklad += (+cfg.kmZaDen || 0);
+      kmObjizdka += eff.objizdkaKm;
+      prijem += cfg.cenovyModel === 'pausal' ? (+cfg.pausalZaDen||0) : (((+cfg.kmZaDen||0)+eff.objizdkaKm) * (+cfg.cenaZaKm||0));
+    }
+    const kmCelkem = kmZaklad + kmObjizdka;
+    rows.push([route, cfg.cenovyModel==='pausal'?'Paušál':'Km', cfg.stalyRidic||'—', dnyOdjeto, dnyNejelo, kmZaklad, kmObjizdka, kmCelkem, prijem]);
+    sumOdjeto+=dnyOdjeto; sumNejelo+=dnyNejelo; sumKmZaklad+=kmZaklad; sumKmObjizdka+=kmObjizdka; sumKmCelkem+=kmCelkem; sumPrijem+=prijem;
+  });
+  rows.push(['CELKEM','','', sumOdjeto, sumNejelo, sumKmZaklad, sumKmObjizdka, sumKmCelkem, sumPrijem]);
+
+  const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const mesicStr = `${year}-${String(month+1).padStart(2,'0')}`;
+  downloadFile(`mala-doprava-${mesicStr}.csv`, 'text/csv;charset=utf-8;', '﻿'+csv);
+}
+
+// Export výjimek k fakturaci — jeden řádek na každou zapsanou výjimku v měsíci
+function exportMalaDopravaVyjimkyCSV() {
+  const { year, month, daysInMonth } = malaDopravaAktualniMesic();
+  const rows = [['Datum','Trasa','Řidič','Km navíc','Vícenáklad Kč','Nejelo']];
+
+  for (let d=1; d<=daysInMonth; d++) {
+    const iso = toISO(new Date(year, month, d));
+    if (!isDrivingDay(iso)) continue;
+    const vyjimky = denniVyjimky(iso);
+    PNS_ROUTES.forEach(route => {
+      const v = vyjimky[route];
+      if (!v) return;
+      const cfg = state.pnsRouteConfig[route];
+      const objKm = +v.objizdkaKm || 0;
+      const vicenaklad = (!v.nejelo && objKm>0 && cfg.cenovyModel!=='pausal') ? objKm * (+cfg.cenaZaKm||0) : 0;
+      rows.push([formatDate(iso), route, v.ridic || cfg.stalyRidic || '', objKm, vicenaklad, v.nejelo ? 'ano' : 'ne']);
+    });
+  }
+  const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const mesicStr = `${year}-${String(month+1).padStart(2,'0')}`;
+  downloadFile(`mala-doprava-vyjimky-${mesicStr}.csv`, 'text/csv;charset=utf-8;', '﻿'+csv);
 }
 
 
