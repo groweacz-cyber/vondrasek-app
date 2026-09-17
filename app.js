@@ -288,6 +288,15 @@ function renderSection(name) {
   document.getElementById('topbarTitle').textContent = SECTIONS[name]?.title || 'Dashboard';
   content.innerHTML = (SECTIONS[name] || SECTIONS.dashboard).render();
   if (SECTIONS[name]?.after) SECTIONS[name].after();
+  updateUkazkovaBadge();
+}
+
+// Badge "Ukázková verze" zobrazí jen dokud jsou v datech seed záznamy (řidič Novák Jan / vozidlo 3C1 2345)
+function updateUkazkovaBadge() {
+  const badge = document.getElementById('ukazkovaBadge');
+  if (!badge) return;
+  const maUkazkovaData = state.ridici.some(r => r.jmeno === 'Novák Jan') || state.vozidla.some(v => v.spz === '3C1 2345');
+  badge.style.display = maUkazkovaData ? '' : 'none';
 }
 
 const SECTIONS = {
