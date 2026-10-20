@@ -10,7 +10,7 @@
 // stará cache. Bez zvýšení verze se starý obsah v cache jen tiše přepíše při příští
 // úspěšné síťové odpovědi — pro běžné textové/JS změny to stačí, ale po větším
 // zásahu (např. změna seznamu ASSETS) verzi zvyš, ať se install/activate jistě spustí.
-const CACHE_NAME = 'vondrasek-v2';
+const CACHE_NAME = 'vondrasek-v3';
 const ASSETS = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.json', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', (e) => {

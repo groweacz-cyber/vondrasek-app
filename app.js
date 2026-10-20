@@ -7,7 +7,27 @@
    + Barevné karty zakázek
 ========================================================= */
 
-const STORAGE_KEY = 'vondrasek_app_v1';
+// ---------- OSTRÝ PROVOZ ----------
+// Klíč v2 = ostrá verze. Zkušební data ze starého klíče (vondrasek_app_v1) se vůbec nenačítají,
+// takže systém startuje prázdný; staré záznamy v prohlížeči jen leží nepoužité a nic nerozbíjejí.
+const STORAGE_KEY = 'vondrasek_app_v2';
+
+// PIN majitele — přihlášení "Majitel / dispečer".
+const OWNER_PIN = '5294';
+
+// Řidiči stálých tras PNS: jeden řidič a jeden PIN na trasu. Jména jsou zatím zástupná
+// ("20001 Řidič") — majitel je v sekci Řidiči přepíše na skutečná jména (vazba na trasu
+// a zapsané jízdy se při přejmenování přenesou). První slovo jména musí zůstat unikátní,
+// podle něj appka řidiči filtruje jeho jízdy. Seznam tras musí odpovídat PNS_ROUTES níže.
+const RIDICI_TRAS = [
+  { trasa: '20001', pin: '8536' }, { trasa: '20004', pin: '8042' }, { trasa: '20011', pin: '3064' },
+  { trasa: '20016', pin: '4285' }, { trasa: '20041', pin: '8597' }, { trasa: '20042', pin: '7359' },
+  { trasa: '20043', pin: '4257' }, { trasa: '20044', pin: '9248' }, { trasa: '20045', pin: '7241' },
+  { trasa: '20058', pin: '1290' }, { trasa: '20063', pin: '6945' }, { trasa: '20064', pin: '9742' },
+  { trasa: '20066', pin: '3795' }
+];
+const zastupneJmenoRidiceTrasy = (trasa) => trasa + ' Řidič';
+
 const state = loadState() || {
   role: null, driverName: null, driverId: null,
   jizdy: seedJizdy(), tankovani: seedTankovani(),
@@ -28,7 +48,8 @@ if (!state.pnsRouteConfig) {
 function ensureRouteConfig() {
   PNS_ROUTES.forEach(r => {
     if (!state.pnsRouteConfig[r]) {
-      state.pnsRouteConfig[r] = { cenovyModel: 'km', cenaZaKm: 0, kmZaDen: 0, pausalZaDen: 0, odhadNakladuZaDen: 0, stalyRidic: '' };
+      const ridicTrasy = RIDICI_TRAS.some(t => t.trasa === r) ? zastupneJmenoRidiceTrasy(r) : '';
+      state.pnsRouteConfig[r] = { cenovyModel: 'km', cenaZaKm: 0, kmZaDen: 0, pausalZaDen: 0, odhadNakladuZaDen: 0, stalyRidic: ridicTrasy };
     } else if (state.pnsRouteConfig[r].stalyRidic === undefined) {
       state.pnsRouteConfig[r].stalyRidic = '';
     }
@@ -164,57 +185,37 @@ function vypocetKmDne(iso) {
 }
 
 
-function seedJizdy() {
-  return [
-    { id: 1, datum: '2026-08-01', ridic: 'Novák J.', vozidlo: '3C1 2345', trasaOd: 'Jindřichův Hradec', trasaDo: 'Praha', km: 145, poznamka: 'Palety pro velkoobchod', financni: { fakturovano: 4500, palivo: 950, mytne: 120, clo: 0, amortizace: 362.5, pojisteni: 100, ridicNaklad: 800, ostatni: 0 } },
-    { id: 2, datum: '2026-08-02', ridic: 'Svoboda M.', vozidlo: '3C2 5678', trasaOd: 'Praha', trasaDo: 'Mnichov', km: 380, poznamka: 'Mezinárodní přeprava', financni: { fakturovano: 15000, palivo: 3200, mytne: 1800, clo: 0, amortizace: 1596, pojisteni: 300, ridicNaklad: 2500, ostatni: 200 } },
-    { id: 3, datum: '2026-07-28', ridic: 'Novák J.', vozidlo: '3C1 2345', trasaOd: 'Praha', trasaDo: 'Jindřichův Hradec', km: 145, poznamka: 'Zpáteční jízda', financni: null },
-    { id: 4, datum: '2026-07-15', ridic: 'Svoboda M.', vozidlo: '3C2 5678', trasaOd: 'Brno', trasaDo: 'Varšava', km: 550, poznamka: 'Celovůz', financni: null },
-    { id: 5, datum: '2026-06-20', ridic: 'Novák J.', vozidlo: '3C1 2345', trasaOd: 'Praha', trasaDo: 'Vídeň', km: 295, poznamka: 'Express', financni: null },
-    { id: 6, datum: '2026-06-10', ridic: 'Svoboda M.', vozidlo: '3C2 5678', trasaOd: 'Ostrava', trasaDo: 'Praha', km: 370, poznamka: '', financni: null }
-  ];
-}
-function seedTankovani() {
-  return [
-    { id: 1, datum: '2026-08-01', vozidlo: '3C1 2345', litry: 85, cenaCelkem: 3060, misto: 'OMV Praha', ridic: 'Novák J.' },
-    { id: 2, datum: '2026-08-02', vozidlo: '3C2 5678', litry: 220, cenaCelkem: 7920, misto: 'Shell Rozvadov', ridic: 'Svoboda M.' }
-  ];
-}
-function seedVozidla() {
-  return [
-    { id: 1, spz: '3C1 2345', typ: 'Dodávka', znacka: 'Mercedes Sprinter', stk: '2027-03-15', pojistka: '2027-01-01', poznamka: 'V provozu', amortizaceKm: 2.5 },
-    { id: 2, spz: '3C2 5678', typ: 'Kamion', znacka: 'MAN TGX', stk: '2026-11-20', pojistka: '2027-05-10', poznamka: 'V provozu', amortizaceKm: 4.2 },
-    { id: 3, spz: '3C3 9012', typ: 'Kamion', znacka: 'Volvo FH', stk: '2026-09-05', pojistka: '2026-12-15', poznamka: 'STK se blíží', amortizaceKm: 4.0 }
-  ];
-}
+// Ostrý provoz startuje bez dat: jízdy, tankování, vozidla a zakázky se zadávají přímo v appce.
+function seedJizdy() { return []; }
+function seedTankovani() { return []; }
+function seedVozidla() { return []; }
+function seedZakazky() { return []; }
+// Jediné předvyplněné záznamy jsou řidiči stálých tras PNS (kvůli PINům) — viz RIDICI_TRAS nahoře.
 function seedRidici() {
-  return [
-    { id: 1, jmeno: 'Novák Jan', telefon: '+420 601 111 222', skupina: 'C+E', kartaRidice: '2028-04-10', profesniPrukaz: '2027-06-20', pin: '1111' },
-    { id: 2, jmeno: 'Svoboda Martin', telefon: '+420 602 333 444', skupina: 'C', kartaRidice: '2027-11-05', profesniPrukaz: '2028-01-15', pin: '2222' }
-  ];
-}
-function seedZakazky() {
-  return [
-    { id: 1, klient: 'Výrobní firma Brno', trasa: 'Brno → Vídeň', datum: '2026-08-05', stav: 'Naplánováno', cena: 12500, poznamka: '' },
-    { id: 2, klient: 'Velkoobchod Praha', trasa: 'Praha → Berlín', datum: '2026-08-07', stav: 'Probíhá', cena: 18000, poznamka: 'Urgentní' },
-    { id: 3, klient: 'E-shop Plzeň', trasa: 'Plzeň → Mnichov', datum: '2026-07-20', stav: 'Dokončeno', cena: 9500, poznamka: '' },
-    { id: 4, klient: 'Stavební firma', trasa: 'Praha → Ostrava', datum: '2026-07-10', stav: 'Dokončeno', cena: 7800, poznamka: '' }
-  ];
+  return RIDICI_TRAS.map((t, i) => ({
+    id: i + 1, jmeno: zastupneJmenoRidiceTrasy(t.trasa), telefon: '', skupina: '—',
+    kartaRidice: '', profesniPrukaz: '', posledniStazeniKarty: null, pin: t.pin
+  }));
 }
 
 // ---------- LOGIN ----------
-document.querySelector('[data-role="owner"]').addEventListener('click', () => {
-  state.role = 'owner'; state.driverName = null; state.driverId = null;
-  saveState(); showApp();
-});
+// Majitel i řidič se přihlašují čtyřmístným PINem; režim určuje, který PIN se ověřuje.
+let loginRezim = 'driver'; // 'owner' | 'driver'
 
-document.getElementById('btnDriverLogin').addEventListener('click', () => {
+function otevriPinKrok(rezim) {
+  loginRezim = rezim;
+  document.getElementById('pinTitle').textContent = rezim === 'owner' ? '👔 Přihlášení majitele' : '👷 Přihlášení řidiče';
+  document.getElementById('pinError').textContent = rezim === 'owner'
+    ? 'PIN nebyl rozpoznán — zkus to znovu.'
+    : 'PIN nebyl rozpoznán — zkus to znovu nebo se zeptej majitele.';
   document.getElementById('loginStep1').hidden = true;
   document.getElementById('loginStep2').hidden = false;
   document.getElementById('pinInput').value = '';
   document.getElementById('pinError').hidden = true;
   document.getElementById('pinInput').focus();
-});
+}
+document.querySelector('[data-role="owner"]').addEventListener('click', () => otevriPinKrok('owner'));
+document.getElementById('btnDriverLogin').addEventListener('click', () => otevriPinKrok('driver'));
 
 document.getElementById('btnPinBack').addEventListener('click', () => {
   document.getElementById('loginStep2').hidden = true;
@@ -223,16 +224,19 @@ document.getElementById('btnPinBack').addEventListener('click', () => {
 
 function tryPinLogin() {
   const pin = document.getElementById('pinInput').value.trim();
-  const ridic = state.ridici.find(r => r.pin === pin);
-  if (!ridic) {
+  const ridic = loginRezim === 'driver' ? state.ridici.find(r => r.pin === pin) : null;
+  const ok = loginRezim === 'owner' ? pin === OWNER_PIN : !!ridic;
+  if (!ok) {
     document.getElementById('pinError').hidden = false;
     document.getElementById('pinInput').value = '';
     document.getElementById('pinInput').focus();
     return;
   }
-  state.role = 'driver';
-  state.driverName = ridic.jmeno;
-  state.driverId = ridic.id;
+  if (loginRezim === 'owner') {
+    state.role = 'owner'; state.driverName = null; state.driverId = null;
+  } else {
+    state.role = 'driver'; state.driverName = ridic.jmeno; state.driverId = ridic.id;
+  }
   saveState(); showApp();
 }
 document.getElementById('btnPinConfirm').addEventListener('click', tryPinLogin);
@@ -249,6 +253,7 @@ document.getElementById('logoutBtn').addEventListener('click', () => {
   document.getElementById('loginStep2').hidden = true;
 });
 function showApp() {
+  document.getElementById('pinInput').value = '';
   document.getElementById('loginOverlay').style.display = 'none';
   document.getElementById('app').hidden = false;
   document.getElementById('content').setAttribute('data-tisk-datum', new Date().toLocaleDateString('cs-CZ'));
@@ -256,14 +261,16 @@ function showApp() {
   document.getElementById('userIc').textContent = isOwner ? '👔' : '🚚';
   document.getElementById('userName').textContent = isOwner ? 'Majitel' : state.driverName;
   document.getElementById('userRole').textContent = isOwner ? 'Plný přístup' : 'Vidí jen svoje';
-  if (!isOwner) applyDriverView();
+  applyDriverView(!isOwner);
   renderSection('dashboard');
   posliNotifikaceProUpozorneni();
 }
-function applyDriverView() {
+// Řidič má zamčené menu kromě svých sekcí; při přepnutí zpět na majitele (bez obnovení stránky) se zámek zruší
+function applyDriverView(jeRidic) {
   const allowed = ['dashboard', 'jizdy', 'tankovani', 'mala-doprava'];
   document.querySelectorAll('.nav-item').forEach(item => {
-    if (!allowed.includes(item.dataset.section)) {
+    item.style.opacity = ''; item.style.pointerEvents = '';
+    if (jeRidic && !allowed.includes(item.dataset.section)) {
       item.style.opacity = '0.35'; item.style.pointerEvents = 'none';
     }
   });
@@ -290,15 +297,6 @@ function renderSection(name) {
   document.getElementById('topbarTitle').textContent = SECTIONS[name]?.title || 'Dashboard';
   content.innerHTML = (SECTIONS[name] || SECTIONS.dashboard).render();
   if (SECTIONS[name]?.after) SECTIONS[name].after();
-  updateUkazkovaBadge();
-}
-
-// Badge "Ukázková verze" zobrazí jen dokud jsou v datech seed záznamy (řidič Novák Jan / vozidlo 3C1 2345)
-function updateUkazkovaBadge() {
-  const badge = document.getElementById('ukazkovaBadge');
-  if (!badge) return;
-  const maUkazkovaData = state.ridici.some(r => r.jmeno === 'Novák Jan') || state.vozidla.some(v => v.spz === '3C1 2345');
-  badge.style.display = maUkazkovaData ? '' : 'none';
 }
 
 const SECTIONS = {
@@ -349,7 +347,6 @@ function renderDashboard() {
       <div class="page-actions">
         <button class="btn btn-ghost btn-sm" id="btnDashAddJizda">+ Jízda</button>
         <button class="btn btn-ghost btn-sm" id="btnDashAddTank">+ Tankování</button>
-        ${isOwner ? `<button class="btn btn-ghost btn-sm" id="btnResetData" style="border-color:var(--red);color:var(--red);">🗑️ Smazat ukázková data</button>` : ''}
       </div>
     </div>
 
@@ -534,13 +531,8 @@ function bindDashboard() {
     openModal('tankModal');
   });
 
-  const btn = document.getElementById('btnResetData');
-  if (!btn) return;
-  btn.addEventListener('click', () => {
-    if (!confirm('Smazat všechna ukázková data?\n\nZůstane prázdný systém připravený pro reálná data. Tato akce je nevratná.')) return;
-    state.jizdy = []; state.tankovani = []; state.vozidla = []; state.ridici = []; state.zakazky = [];
-    saveState(); renderSection('dashboard');
-  });
+  // Zálohu dat vidí jen majitel (řidiči mají na dashboardu jen svoje)
+  if (state.role !== 'owner') return;
 
   document.getElementById('btnStahnoutZalohu').addEventListener('click', () => {
     state.posledniZaloha = new Date().toISOString();
@@ -1430,6 +1422,33 @@ function renderRidicModal(r={}) {
     </div>
   `;
 }
+// Zkrácené jméno ("Jan Novák" -> "Jan N."), pod kterým se řidič ukládá do jízd a tankování
+function kratkeJmenoRidice(jmeno) {
+  const casti = (jmeno || '').trim().split(' ');
+  return casti[0] + ' ' + (casti[1] ? casti[1][0] : '') + '.';
+}
+
+// Když majitel řidiči změní jméno, přenese se do všeho, co se na řidiče odkazuje jménem:
+// stálé trasy PNS, výjimky v malé dopravě, zapsané jízdy a tankování.
+function prenesPrejmenovaniRidice(stare, nove) {
+  if (!stare || !nove || stare === nove) return;
+  Object.values(state.pnsRouteConfig).forEach(cfg => { if (cfg.stalyRidic === stare) cfg.stalyRidic = nove; });
+  Object.values(state.malaDoprava).forEach(den => {
+    if (den.ridic === stare) den.ridic = nove;
+    [den.vyjimky, den.trasy].forEach(mapa => {
+      if (mapa) Object.values(mapa).forEach(v => { if (v && v.ridic === stare) v.ridic = nove; });
+    });
+  });
+  // Jízdy a tankování nesou jen zkrácené jméno — přepíšeme je, jen když ho nesdílí jiný řidič
+  const staryKratky = kratkeJmenoRidice(stare), novyKratky = kratkeJmenoRidice(nove);
+  const sdileno = state.ridici.some(r => r.jmeno !== stare && kratkeJmenoRidice(r.jmeno) === staryKratky);
+  if (!sdileno) {
+    state.jizdy.forEach(j => { if (j.ridic === staryKratky) j.ridic = novyKratky; });
+    state.tankovani.forEach(t => { if (t.ridic === staryKratky) t.ridic = novyKratky; });
+  }
+  if (state.role === 'driver' && state.driverName === stare) state.driverName = nove;
+}
+
 function bindRidici() {
   document.getElementById('btnAddRidic').addEventListener('click', () => openModal('ridicModal'));
   const pinField = document.querySelector('#ridicForm [name="pin"]');
@@ -1447,7 +1466,11 @@ function bindRidici() {
     const data = { jmeno: fd.get('jmeno'), telefon: fd.get('telefon'), skupina: fd.get('skupina'), kartaRidice: fd.get('kartaRidice'), profesniPrukaz: fd.get('profesniPrukaz'), posledniStazeniKarty: fd.get('posledniStazeniKarty') || null, pin };
     if (editId) {
       const idx = state.ridici.findIndex(r=>r.id===+editId);
-      if (idx>=0) state.ridici[idx] = { ...state.ridici[idx], ...data };
+      if (idx>=0) {
+        const stareJmeno = state.ridici[idx].jmeno;
+        state.ridici[idx] = { ...state.ridici[idx], ...data };
+        prenesPrejmenovaniRidice(stareJmeno, data.jmeno);
+      }
     } else {
       state.ridici.push({ id: Date.now(), ...data });
     }

@@ -35,7 +35,8 @@ Nastavení ve Vercel Settings → Domains, DNS záznamy přidáš ve Forpsi.
 - [x] Vozidla, Řidiči, Zakázky (přehled)
 - [x] Reporty (km/řidič, km/vozidlo, spotřeba)
 - [x] Podklady k fakturaci
-- [x] Přihlašování (demo — majitel vs. řidič)
+- [x] Přihlašování PINem — majitel (`OWNER_PIN`) a řidiči tras PNS (`RIDICI_TRAS`), obojí v `app.js`
+- [x] Ostrý provoz od 2026-10-20: systém startuje bez dat (klíč `vondrasek_app_v2`, zkušební data z v1 se nenačítají)
 - [ ] Přidávání vozidel/řidičů/zakázek
 - [ ] Napojení na databázi (Neon) + reálné přihlašování
 - [ ] Náborový chatbot (rule-based)

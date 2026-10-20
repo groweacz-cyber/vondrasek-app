@@ -31,19 +31,18 @@
       <div class="role-buttons">
         <button class="role-btn" data-role="owner">
           <span class="role-ic">👔</span>
-          <div><strong>Majitel / dispečer</strong><small>Jarda — plný přístup</small></div>
+          <div><strong>Majitel / dispečer</strong><small>Zadej svůj PIN</small></div>
         </button>
         <button class="role-btn" id="btnDriverLogin">
           <span class="role-ic">🚚</span>
           <div><strong>Řidič</strong><small>Zadej svůj PIN</small></div>
         </button>
       </div>
-      <p class="login-note">Ukázková verze — reálné přihlašování s heslem přijde v další fázi.</p>
     </div>
 
-    <!-- Krok 2: PIN pro řidiče -->
+    <!-- Krok 2: PIN (majitel i řidič — nadpis a chybovou hlášku nastavuje app.js) -->
     <div id="loginStep2" hidden>
-      <h2>👷 Přihlášení řidiče</h2>
+      <h2 id="pinTitle">👷 Přihlášení řidiče</h2>
       <p class="login-hint">Zadej svůj čtyřmístný PIN.</p>
       <div class="form-row">
         <input type="text" id="pinInput" inputmode="numeric" maxlength="4" placeholder="• • • •" class="pin-input" autocomplete="off">
@@ -184,9 +183,6 @@
     <header class="topbar">
       <button class="menu-toggle" id="menuToggle" aria-label="Menu">☰</button>
       <div class="topbar-title" id="topbarTitle">Dashboard</div>
-      <div class="topbar-actions">
-        <span class="topbar-badge" id="ukazkovaBadge">Ukázková verze</span>
-      </div>
     </header>
 
     <div class="content" id="content">
