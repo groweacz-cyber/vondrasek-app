@@ -1,6 +1,6 @@
 // Sdílené definice: které kolekce se synchronizují a co smí který uživatel číst a psát.
-const KOLEKCE = ['jizdy', 'tankovani', 'vozidla', 'ridici', 'zakazky', 'malaDoprava', 'pnsRouteConfig'];
-const RIDIC_PISE = ['jizdy', 'tankovani']; // řidič zapisuje jen svoje jízdy a tankování
+const KOLEKCE = ['jizdy', 'tankovani', 'vozidla', 'ridici', 'zakazky', 'malaDoprava', 'pnsRouteConfig', 'hlaseniObjizdek'];
+const RIDIC_PISE = ['jizdy', 'tankovani', 'hlaseniObjizdek']; // řidič zapisuje jen svoje jízdy, tankování a hlášení objížděk
 const MAX_ZAZNAM = 100000;                  // max. velikost jednoho záznamu (JSON bez fotky účtenky)
 const MAX_FOTKA = 700000;                   // max. velikost fotky účtenky (base64)
 

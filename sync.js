@@ -11,17 +11,17 @@
 const STORAGE_KEY = 'vondrasek_app_v3';   // kopie dat v prohlížeči (v1/v2 = starší verze bez serveru)
 const SESSION_KEY = 'vondrasek_session_v3';
 
-const SYNC_POLE = ['jizdy', 'tankovani', 'vozidla', 'ridici', 'zakazky'];   // seznamy záznamů s číselným id
+const SYNC_POLE = ['jizdy', 'tankovani', 'vozidla', 'ridici', 'zakazky', 'hlaseniObjizdek'];   // seznamy záznamů s číselným id
 const SYNC_MAPY = ['malaDoprava', 'pnsRouteConfig'];                        // záznamy podle klíče (datum / číslo trasy)
 const SYNC_VSE = SYNC_POLE.concat(SYNC_MAPY);
-const RIDIC_SMI_PSAT = ['jizdy', 'tankovani'];
-const RAZENI_SESTUPNE = ['jizdy', 'tankovani', 'zakazky'];                  // nejnovější nahoře
+const RIDIC_SMI_PSAT = ['jizdy', 'tankovani', 'hlaseniObjizdek'];
+const RAZENI_SESTUPNE = ['jizdy', 'tankovani', 'zakazky', 'hlaseniObjizdek'];                  // nejnovější nahoře
 const INTERVAL_STAHOVANI_MS = 15000;
 
 function novyPrazdnyStav() {
   return {
     role: null, driverName: null, driverId: null,
-    jizdy: [], tankovani: [], vozidla: [], ridici: [], zakazky: [],
+    jizdy: [], tankovani: [], vozidla: [], ridici: [], zakazky: [], hlaseniObjizdek: [],
     malaDoprava: {}, pnsRouteConfig: {},
     lastVozidloPerDriver: {},          // jen na tomto zařízení (předvyplnění vozidla)
     posledniZaloha: null, posledniNotifikace: null,
@@ -32,10 +32,11 @@ function novyPrazdnyStav() {
 const sync = {
   since: 0,            // poslední číslo změny, které už máme
   snapshot: {},        // co podle nás drží server: { kolekce: { id: kanonický JSON } }
-  me: null,            // údaje ze serveru o přihlášeném (mustChangePin …)
+  me: null,            // údaje ze serveru o přihlášeném (mustChangePin, mojeTrasy u řidiče …)
   stav: 'ok',          // ok | sync | offline | chyba
   cekaNaRender: false,
-  odmitnuto: {}        // změny, které server odmítl (aby se neposílaly dokola)
+  odmitnuto: {},       // změny, které server odmítl (aby se neposílaly dokola)
+  initialLoadDone: true // false jen během prvního stažení po přihlášení — ať se tehdy nespustí notifikace o "nových" hlášeních
 };
 
 // ---------- relace a kopie v prohlížeči ----------
@@ -175,6 +176,7 @@ function seraditKolekce() {
 
 function pouzijZaznamy(records) {
   let zmeneno = false;
+  const noveHlaseni = [];       // nová (dosud neznámá) hlášení objížděk — pro upozornění majitele
   records.forEach(r => {
     const coll = r.coll, id = String(r.id);
     if (!SYNC_VSE.includes(coll)) return;
@@ -190,14 +192,19 @@ function pouzijZaznamy(records) {
     }
     if (lokalniZmena) return;
     const nova = r.data;
-    if (existujici !== undefined && kanon(existujici) === kanon(nova)) { snap[id] = kanon(nova); return; }
+    const bylaTuNova = existujici !== undefined;
+    if (bylaTuNova && kanon(existujici) === kanon(nova)) { snap[id] = kanon(nova); return; }
     if (pole) {
       const idx = state[coll].findIndex(z => String(z.id) === id);
       if (idx >= 0) state[coll][idx] = nova; else state[coll].push(nova);
     } else state[coll][id] = nova;
     snap[id] = kanon(nova); zmeneno = true;
+    if (coll === 'hlaseniObjizdek' && !bylaTuNova) noveHlaseni.push(nova);
   });
   if (zmeneno) seraditKolekce();
+  if (noveHlaseni.length && sync.initialLoadDone && typeof window.oznamNoveHlaseniObjizdek === 'function') {
+    window.oznamNoveHlaseniObjizdek(noveHlaseni);
+  }
   return zmeneno;
 }
 
@@ -304,7 +311,9 @@ async function prihlasitPinem(role, pin) {
   resetStavu();
   ulozRelaci({ token: data.token, role: data.role, driverId: data.driverId, driverName: data.driverName });
   state.role = data.role; state.driverId = data.driverId; state.driverName = data.driverName;
+  sync.initialLoadDone = false;   // první stažení po přihlášení přinese spoustu "nových" záznamů — notifikace z nich nechceme
   await plneStazeni();
+  sync.initialLoadDone = true;
   sync.me = { ...(sync.me || {}), mustChangePin: data.mustChangePin };
   return data;
 }

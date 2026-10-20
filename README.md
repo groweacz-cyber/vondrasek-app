@@ -27,7 +27,7 @@ Majitel vidí a spravuje **všechna** data, řidič vidí jen svoje jízdy a tan
 ## Jak to funguje
 
 - **Data jsou na serveru** (tabulka `vnd_records`: kolekce `jizdy`, `tankovani`, `vozidla`, `ridici`, `zakazky`,
-  `malaDoprava`, `pnsRouteConfig`). Prohlížeč má jen pracovní kopii.
+  `malaDoprava`, `pnsRouteConfig`, `hlaseniObjizdek`). Prohlížeč má jen pracovní kopii.
 - **Synchronizace** (`sync.js`): každá změna se hned odešle, nové změny od ostatních se stahují každých 15 s
   (a při návratu na kartu). Bez připojení se změny drží a odešlou po obnovení sítě. Při souběžné úpravě téhož
   záznamu vyhrává poslední zápis.
@@ -39,6 +39,10 @@ Majitel vidí a spravuje **všechna** data, řidič vidí jen svoje jízdy a tan
   v appce (Řidiči → PIN majitele / Upravit řidiče). Po změně PINu přestanou platit staré relace. Po 5 špatných
   pokusech z jedné adresy se přihlášení na 5 min zamkne (pak 10, 20, … max. 60 min).
 - **Fotky účtenek** se ukládají na serveru zvlášť (`vnd_receipts`) a načítají přes `/api/receipt` (cookie relace).
+- **Hlášení objížděk**: řidič má na dashboardu tlačítko „📣 Objížďka" — nahlásí km navíc na své trase (server si
+  trasu ověří podle toho, kde je vedený jako stálý řidič) a km se hned promítnou majiteli do Malé dopravy u daného
+  dne a trasy (jen ta jedna výjimka, zbytek dne zůstane beze změny). Majitel hlášení vidí na dashboardu, klik na
+  něj otevře ten den v Malé dopravě a označí hlášení za přečtené.
 
 ## Nastavení na Vercelu (jednorázově)
 
@@ -62,6 +66,7 @@ Majitel vidí a spravuje **všechna** data, řidič vidí jen svoje jízdy a tan
 - [x] Ostrý provoz od 2026-10-20 — bez zkušebních dat
 - [x] Sdílená data na serveru: majitel vidí všechno, co zapíšou řidiči
 - [x] Přihlášení PINem ověřované serverem (majitel + řidiči), změna PINů v appce
+- [x] Řidič nahlásí objížďku z dashboardu — promítne se do Malé dopravy a majitel ji vidí
 - [ ] Skutečné účty (e-mail + heslo) místo PINů, historie změn (audit)
 - [ ] Náborový chatbot (rule-based)
 - [ ] Fáze 2 sekce (správce poptávek, marketing)

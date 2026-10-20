@@ -315,6 +315,7 @@ function renderDashboard() {
       <div class="page-actions">
         <button class="btn btn-ghost btn-sm" id="btnDashAddJizda">+ Jízda</button>
         <button class="btn btn-ghost btn-sm" id="btnDashAddTank">+ Tankování</button>
+        ${!isOwner ? `<button class="btn btn-ghost btn-sm" id="btnDashAddObjizdka">📣 Objížďka</button>` : ''}
       </div>
     </div>
 
@@ -337,6 +338,7 @@ function renderDashboard() {
     </div>
 
     ${isOwner ? renderDnesekMalaDoprava() : ''}
+    ${isOwner ? renderHlaseniObjizdekOwnerCard() : renderHlaseniObjizdekDriverCard()}
 
     <!-- GRAF -->
     <div class="card-panel" style="margin-bottom:20px;">
@@ -490,6 +492,134 @@ function renderDnesekMalaDoprava() {
   `;
 }
 
+// ==========================================================
+// HLÁŠENÍ OBJÍŽĎEK — řidič nahlásí km navíc na své trase, appka je rovnou
+// zapíše majiteli do Malé dopravy (viz api/sync.js → aplikujHlaseniObjizdky)
+// ==========================================================
+
+// Karta pro majitele: poslední hlášení od řidičů, klikem se otevře ten den v Malé dopravě
+function renderHlaseniObjizdekOwnerCard() {
+  const seznam = state.hlaseniObjizdek.slice(0, 8);
+  const nepectenych = state.hlaseniObjizdek.filter(h => h.stav !== 'precteno').length;
+  return `
+    <div class="card-panel" style="margin-bottom:20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+        <h3 style="margin-bottom:0;">📣 Hlášení objížděk od řidičů</h3>
+        ${nepectenych > 0 ? `<span class="badge warn">${nepectenych} ${nepectenych===1?'nové':'nových'}</span>` : ''}
+      </div>
+      <p class="csub">Km navíc, které řidič nahlásí, se rovnou zapíšou do Malé dopravy u dané trasy a dne.</p>
+      ${seznam.length ? seznam.map(h => `
+        <div style="display:flex; align-items:center; gap:12px; padding:10px 12px; background:var(--card); border-radius:var(--radius-sm); margin-bottom:8px; border-left:3px solid ${h.stav!=='precteno'?'var(--amber)':'var(--border-c)'}; cursor:pointer;" onclick="otevritHlaseniVMaleDoprave(${h.id})">
+          <span style="font-size:18px;">🛣️</span>
+          <div style="flex:1; font-size:13px;">
+            <b>${h.driverName}</b> — trasa ${h.trasa}, <b style="color:var(--amber);">+${h.km} km</b> · ${formatDate(h.datum)}
+            ${h.poznamka ? `<div style="color:var(--muted); font-size:12px; margin-top:2px;">${h.poznamka}</div>` : ''}
+          </div>
+          <span class="badge ${h.stav==='precteno'?'ok':'warn'}">${h.stav==='precteno'?'Přečteno':'Nové'}</span>
+        </div>
+      `).join('') : `<div class="empty-state"><div class="empty-ic">📣</div>Zatím žádná hlášení.</div>`}
+    </div>
+  `;
+}
+
+// Karta pro řidiče: co sám nahlásil a jestli to majitel už viděl
+function renderHlaseniObjizdekDriverCard() {
+  const seznam = state.hlaseniObjizdek.slice(0, 8);
+  return `
+    <div class="card-panel" style="margin-bottom:20px;">
+      <h3>🛣️ Moje hlášení objížděk</h3>
+      <p class="csub">Km navíc na tvé trase se po odeslání hned zapíšou majiteli do Malé dopravy.</p>
+      ${seznam.length ? `
+      <table class="data-table">
+        <thead><tr><th>Datum</th><th>Trasa</th><th style="text-align:right">Km navíc</th><th>Poznámka</th><th></th></tr></thead>
+        <tbody>
+          ${seznam.map(h => `
+            <tr>
+              <td>${formatDate(h.datum)}</td><td>${h.trasa}</td>
+              <td style="text-align:right">+${h.km} km</td>
+              <td style="color:var(--muted); font-size:12.5px;">${h.poznamka||'—'}</td>
+              <td><span class="badge ${h.stav==='precteno'?'ok':'warn'}">${h.stav==='precteno'?'Majitel viděl':'Odesláno'}</span></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      ` : `<div class="empty-state"><div class="empty-ic">🛣️</div>Zatím jsi nic nenahlásil.</div>`}
+    </div>
+  `;
+}
+
+// Klik na hlášení v dashboardu majitele: otevře ten den v Malé dopravě a hlášení označí za přečtené
+window.otevritHlaseniVMaleDoprave = function(id) {
+  const h = state.hlaseniObjizdek.find(x => x.id === id);
+  if (!h) return;
+  if (h.stav !== 'precteno') { h.stav = 'precteno'; saveState(); }
+  document.querySelector('.nav-item[data-section="mala-doprava"]').click();
+  openMalaDopravaDen(h.datum);
+};
+
+// Formulář pro řidiče — nahlásit km navíc na jeho trase. Vkládá se dynamicky (ne jako součást
+// vykresleného dashboardu), ať má vždy čerstvý seznam tras ze serveru (sync.me.mojeTrasy).
+window.openObjizdkaHlaseniModal = function() {
+  const stare = document.getElementById('objizdkaHlaseniModal'); if (stare) stare.remove();
+  const trasy = (sync.me && sync.me.mojeTrasy) || [];
+  const dnes = toISO(new Date());
+  document.body.insertAdjacentHTML('beforeend', `
+    <div class="modal-overlay open" id="objizdkaHlaseniModal"><div class="modal">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
+        <h2 style="margin-bottom:2px;">🛣️ Nahlásit objížďku</h2>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('objizdkaHlaseniModal').remove()">✕</button>
+      </div>
+      <p class="modal-sub">Km navíc se po odeslání rovnou zapíšou majiteli do Malé dopravy u tvé trasy.</p>
+      ${trasy.length === 0 ? `
+        <p style="font-size:13px; color:var(--amber);">Zatím ti nevidím žádnou přiřazenou trasu PNS — zkus to za chvíli znovu, nebo to řekni majiteli.</p>
+        <div class="modal-actions"><button type="button" class="btn btn-ghost" onclick="document.getElementById('objizdkaHlaseniModal').remove()">Zavřít</button></div>
+      ` : `
+      <form id="objizdkaHlaseniForm">
+        ${trasy.length > 1 ? `
+        <div class="form-row"><label>Trasa *</label>
+          <select name="trasa" required>${trasy.map(t => `<option value="${t}">${t}</option>`).join('')}</select>
+        </div>` : `
+        <input type="hidden" name="trasa" value="${trasy[0]}">
+        <p style="font-size:12.5px; color:var(--muted); margin-bottom:10px;">Trasa: <b>${trasy[0]}</b></p>`}
+        <div class="form-cols-2">
+          <div class="form-row"><label>Datum *</label><input type="date" name="datum" value="${dnes}" required></div>
+          <div class="form-row"><label>Km navíc *</label><input type="number" name="km" min="1" step="1" required placeholder="např. 15"></div>
+        </div>
+        <div class="form-row"><label>Poznámka</label><textarea name="poznamka" rows="2" placeholder="např. uzavírka, objížďka přes..."></textarea></div>
+        <p style="font-size:11.5px; color:var(--dim); margin-bottom:10px;">Pošleš-li hlášení znovu pro stejný den a trasu, poslední km přepíší ty předchozí (nesčítají se).</p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" onclick="document.getElementById('objizdkaHlaseniModal').remove()">Zrušit</button>
+          <button type="submit" class="btn btn-primary">Odeslat hlášení</button>
+        </div>
+      </form>
+      `}
+    </div></div>
+  `);
+  const form = document.getElementById('objizdkaHlaseniForm');
+  if (form) form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    state.hlaseniObjizdek.unshift({
+      id: Date.now(), driverId: state.driverId, driverName: state.driverName,
+      trasa: fd.get('trasa'), datum: fd.get('datum'), km: +fd.get('km') || 0,
+      poznamka: (fd.get('poznamka') || '').trim(), vytvoreno: new Date().toISOString(), stav: 'nove'
+    });
+    saveState();
+    document.getElementById('objizdkaHlaseniModal').remove();
+    renderSection('dashboard');
+    alert('Hlášení odesláno — majitel ho uvidí u objížděk.');
+  });
+};
+
+// Volá sync.js, když přibude hlášení objížďky od řidiče — pošle majiteli upozornění
+// (jen na tomhle zařízení a jen když má povolená oznámení; viz sync.initialLoadDone).
+function oznamNoveHlaseniObjizdek(noveZaznamy) {
+  if (state.role !== 'owner' || !('Notification' in window) || Notification.permission !== 'granted') return;
+  noveZaznamy.forEach(h => {
+    try { new Notification('Vondrášek — nová objížďka', { body: `${h.driverName}: trasa ${h.trasa}, +${h.km} km (${formatDate(h.datum)})`, icon: 'icon-192.png' }); } catch (e) {}
+  });
+}
+
 function bindDashboard() {
   document.getElementById('dnesMalaDopravaCard')?.addEventListener('click', () => {
     document.querySelector('.nav-item[data-section="mala-doprava"]').click();
@@ -505,6 +635,7 @@ function bindDashboard() {
     document.querySelector('.nav-item[data-section="tankovani"]').click();
     openModal('tankModal');
   });
+  document.getElementById('btnDashAddObjizdka')?.addEventListener('click', openObjizdkaHlaseniModal);
 
   // Zálohu dat vidí jen majitel (řidiči mají na dashboardu jen svoje)
   if (state.role !== 'owner') return;

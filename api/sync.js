@@ -7,12 +7,22 @@ const { KOLEKCE, RIDIC_PISE, MAX_ZAZNAM, MAX_FOTKA, projekceProRidice, jeObjekt 
 const STRANKA = 3000;
 const ODDELOVAC = '\u0000';
 
+// Pro řidiče: trasy PNS, kde je nastavený jako stálý řidič (podle jména) — jen seznam čísel tras,
+// žádné ceny ani náklady (ty zůstávají tajné pro majitele). Používá se jen k nabídce ve formuláři hlášení objížďky.
+async function zjistiMojeTrasy(q, rel) {
+  const ridRows = await q(`SELECT data->>'jmeno' AS jmeno FROM vnd_records WHERE coll = 'ridici' AND id = $1 AND deleted = false`, [String(rel.driverId)]);
+  const jmeno = ridRows[0] && ridRows[0].jmeno;
+  if (!jmeno) return [];
+  const rows = await q(`SELECT id FROM vnd_records WHERE coll = 'pnsRouteConfig' AND deleted = false AND data->>'stalyRidic' = $1 ORDER BY id`, [jmeno]);
+  return rows.map(r => r.id);
+}
+
 async function ctiZmeny(req, res, q, rel) {
   const since = Math.max(0, parseInt(req.query && req.query.since, 10) || 0);
   const rows = rel.role === 'owner'
     ? await q('SELECT coll, id, data, deleted, seq FROM vnd_records WHERE seq > $1 ORDER BY seq LIMIT ' + STRANKA, [since])
     : await q(`SELECT coll, id, data, deleted, seq FROM vnd_records
-               WHERE seq > $1 AND (coll IN ('vozidla', 'ridici') OR (coll IN ('jizdy', 'tankovani') AND data->>'driverId' = $2))
+               WHERE seq > $1 AND (coll IN ('vozidla', 'ridici') OR (coll IN ('jizdy', 'tankovani', 'hlaseniObjizdek') AND data->>'driverId' = $2))
                ORDER BY seq LIMIT ` + STRANKA, [since, String(rel.driverId)]);
   const dalsi = rows.length === STRANKA;
   let seq;
@@ -22,7 +32,36 @@ async function ctiZmeny(req, res, q, rel) {
     coll: r.coll, id: r.id, deleted: r.deleted, seq: Number(r.seq),
     data: rel.role === 'owner' ? r.data : projekceProRidice(r.coll, r.data)
   }));
-  return res.status(200).json({ seq, more: dalsi, records, me: { role: rel.role, driverId: rel.driverId, mustChangePin: rel.mustChange } });
+  const me = { role: rel.role, driverId: rel.driverId, mustChangePin: rel.mustChange };
+  if (rel.role === 'driver') me.mojeTrasy = await zjistiMojeTrasy(q, rel);
+  return res.status(200).json({ seq, more: dalsi, records, me });
+}
+
+// Když řidič nahlásí objížďku, km navíc se rovnou promítnou do daného dne v Malé dopravě — jen pro tu jednu
+// trasu, ostatní trasy a náklady toho dne zůstanou beze změny. Trasa se ověří podle jména řidiče u dané trasy
+// (stalyRidic), aby nešlo zapsat objížďku na cizí trasu. Vrací text varování, nebo null při úspěchu —
+// hlášení samotné se uloží vždy, i když se nepodaří ho promítnout (majitel ho pak zapíše ručně).
+async function aplikujHlaseniObjizdky(q, rel, data) {
+  const km = +data.km || 0;
+  const datum = String(data.datum || '');
+  const trasa = String(data.trasa || '');
+  if (km <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(datum) || !trasa) {
+    return 'Hlášení je uložené, ale chybí platné datum nebo km navíc — majitel ho musí do Malé dopravy zapsat ručně.';
+  }
+  const ridRows = await q(`SELECT data->>'jmeno' AS jmeno FROM vnd_records WHERE coll = 'ridici' AND id = $1 AND deleted = false`, [String(rel.driverId)]);
+  const jmeno = ridRows[0] && ridRows[0].jmeno;
+  const trasaRows = await q(`SELECT data FROM vnd_records WHERE coll = 'pnsRouteConfig' AND id = $1 AND deleted = false`, [trasa]);
+  if (!jmeno || !trasaRows.length || trasaRows[0].data.stalyRidic !== jmeno) {
+    return 'Hlášení je uložené, ale tahle trasa u tebe není vedená jako stálá — majitel ho musí do Malé dopravy zapsat ručně.';
+  }
+  const denRows = await q(`SELECT data FROM vnd_records WHERE coll = 'malaDoprava' AND id = $1 AND deleted = false`, [datum]);
+  const den = denRows.length ? denRows[0].data : { vyjimky: {}, nakladyRidic: 0, nakladyAuto: 0, nakladyOstatni: 0 };
+  const puvodniVyjimka = (den.vyjimky || {})[trasa] || {};
+  const novyDen = { ...den, vyjimky: { ...(den.vyjimky || {}), [trasa]: { ridic: puvodniVyjimka.ridic || '', objizdkaKm: km, nejelo: puvodniVyjimka.nejelo || false } } };
+  await q(`INSERT INTO vnd_records (coll, id, data, deleted, seq, updated_by) VALUES ('malaDoprava', $1, $2::jsonb, false, nextval('vnd_rev'), $3)
+           ON CONFLICT (coll, id) DO UPDATE SET data = EXCLUDED.data, deleted = false, seq = nextval('vnd_rev'), updated_by = EXCLUDED.updated_by, updated_at = now()`,
+    [datum, JSON.stringify(novyDen), rel.subject]);
+  return null;
 }
 
 async function ulozZmeny(req, res, q, rel) {
@@ -100,6 +139,11 @@ async function ulozZmeny(req, res, q, rel) {
       await q(`INSERT INTO vnd_records (coll, id, data, deleted, seq, updated_by) VALUES ($1, $2, $3::jsonb, false, nextval('vnd_rev'), $4)
                ON CONFLICT (coll, id) DO UPDATE SET data = EXCLUDED.data, deleted = false, seq = nextval('vnd_rev'),
                  updated_by = EXCLUDED.updated_by, updated_at = now()`, [o.coll, o.id, JSON.stringify(data), rel.subject]);
+
+      if (o.coll === 'hlaseniObjizdek' && !jeMajitel) {
+        const varovani = await aplikujHlaseniObjizdky(q, rel, data);
+        if (varovani) nahrano.varovani = varovani;
+      }
       vysledky[i] = { coll: o.coll, id: o.id, ok: true, ...nahrano };
     } catch (e) {
       console.error('sync op:', o.coll, o.id, e);
