@@ -47,6 +47,11 @@ Majitel vidí a spravuje **všechna** data, řidič vidí jen svoje jízdy a tan
   navíc (ne základní km trasy), cena za km a vícenáklad v Kč, s řádkem CELKEM a exportem do CSV
   (`objizdky-vicenaklady-RRRR-MM.csv`). Paušálové trasy nemají Kč/km, takže se u nich vícenáklad nepočítá (km se
   jen sečtou pro přehled).
+- **Velká doprava (CZ / EU)**: dvě samostatné stránky v menu majitele nad stejnou evidencí jízd (`jizdy`) — každá
+  jízda nese `typ: 'cz' | 'eu'`, zvolený ve formuláři nové jízdy (předvyplněný podle toho, ze které stránky se
+  otevřel). Každá stránka má vlastní ziskovost, filtr/měsíc a export CSV s financemi
+  (`velka-doprava-cz-RRRR-MM.csv` / `-eu-`). Evidence jízd dál ukazuje obě kategorie pohromadě se štítkem CZ/EU
+  u trasy. Obě stránky jsou jen pro majitele (stejně jako Malá doprava).
 
 ## Nastavení na Vercelu (jednorázově)
 
@@ -73,6 +78,7 @@ Majitel vidí a spravuje **všechna** data, řidič vidí jen svoje jízdy a tan
 - [x] Řidič nahlásí objížďku z dashboardu — promítne se do Malé dopravy a majitel ji vidí
 - [x] Měsíční souhrn vícenákladů z objížděk po trasách + export k fakturaci platci
 - [x] Dashboard řidiče ukazuje jeho vlastní trasu PNS (nikdy trasy ostatních řidičů)
+- [x] Velká doprava (CZ – vnitro) a Velká doprava EU (zahraničí) — vlastní stránky, ziskovost, export k fakturaci
 - [ ] Skutečné účty (e-mail + heslo) místo PINů, historie změn (audit)
 - [ ] Náborový chatbot (rule-based)
 - [ ] Fáze 2 sekce (správce poptávek, marketing)

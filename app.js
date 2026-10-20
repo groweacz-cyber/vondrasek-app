@@ -266,6 +266,11 @@ function renderSection(name) {
   content.innerHTML = (SECTIONS[name] || SECTIONS.dashboard).render();
   if (SECTIONS[name]?.after) SECTIONS[name].after();
 }
+// Název aktuálně zvýrazněné sekce v menu — pro znovu-vykreslení po akci v modalu (modal sám neví, odkud byl otevřený)
+function aktualniSekceNazev(vychozi) {
+  const a = document.querySelector('.nav-item.active');
+  return a ? a.dataset.section : vychozi;
+}
 
 const SECTIONS = {
   dashboard:    { title: 'Dashboard', render: renderDashboard, after: bindDashboard },
@@ -274,6 +279,8 @@ const SECTIONS = {
   vozidla:      { title: 'Vozidla', render: renderVozidla, after: bindVozidla },
   ridici:       { title: 'Řidiči', render: renderRidici, after: bindRidici },
   zakazky:      { title: 'Zakázky', render: renderZakazky, after: bindZakazky },
+  'velka-cz':   { title: 'Velká doprava (CZ – vnitro)', render: () => renderVelkaDoprava('cz'), after: () => bindVelkaDoprava('cz') },
+  'velka-eu':   { title: 'Velká doprava EU (zahraničí)', render: () => renderVelkaDoprava('eu'), after: () => bindVelkaDoprava('eu') },
   'mala-doprava': { title: 'Malá doprava (PNS)', render: renderMalaDoprava, after: bindMalaDoprava },
   web:          { title: 'Web', render: () => cs('Fáze 1','🌐','Web','Sledování výkonu webu, návštěvnosti a získaných poptávek.',['Návštěvnost','Odeslané poptávky','Konverzní míra','Zdroj návštěvníků']) },
   google:       { title: 'Google', render: () => cs('Fáze 1','🔍','Google','Přehled Google Business Profile, Ads kampaní a Search Console.',['Zobrazení v mapách','Recenze','Google Ads výkon','Search Console pozice']) },
@@ -769,12 +776,17 @@ function renderJizdy() {
   `;
 }
 
-function renderJizdyRows(list, isOwner) {
+// zobrazitTyp: na stránce, kde se mísí CZ i EU jízdy (Evidence jízd), ukáže u trasy malý štítek CZ/EU.
+// Na vlastních stránkách Velké dopravy (už filtrovaných na jeden typ) je štítek zbytečný — tam se vypne.
+function renderJizdyRows(list, isOwner, zobrazitTyp = true) {
   if (!list.length) return `<tr><td colspan="${isOwner?8:6}"><div class="empty-state"><div class="empty-ic">🛣️</div>Žádné jízdy.</div></td></tr>`;
-  return list.map(j => `
+  return list.map(j => {
+    const jeEu = (j.typ || 'cz') === 'eu';
+    const typBadge = zobrazitTyp ? `<span class="badge ${jeEu?'info':'ok'}" style="margin-right:6px;">${jeEu?'EU':'CZ'}</span>` : '';
+    return `
     <tr>
       <td>${formatDate(j.datum)}</td><td>${j.ridic}</td><td>${j.vozidlo}</td>
-      <td>${j.trasaOd} → ${j.trasaDo}</td>
+      <td>${typBadge}${j.trasaOd} → ${j.trasaDo}</td>
       <td style="text-align:right">${j.km}</td>
       <td style="color:var(--muted);font-size:12.5px;">${j.poznamka||'—'}</td>
       ${isOwner?`<td style="text-align:right">${ziskBadge(j.financni)}</td>
@@ -783,7 +795,7 @@ function renderJizdyRows(list, isOwner) {
         <button class="btn btn-danger btn-sm" onclick="deleteJizda(${j.id})">Smazat</button>
       </td>`:''}
     </tr>
-  `).join('');
+  `;}).join('');
 }
 
 function ziskBadge(f) {
@@ -810,18 +822,27 @@ function bindJizdy() {
   document.getElementById('jizdyFilter').addEventListener('input', applyFilter);
   document.getElementById('jizdyMesic').addEventListener('change', applyFilter);
 
+  bindJizdaForm('jizdy');
+  if (isOwner) wireFinanceModal();
+}
+
+// Sdílený zápis formuláře nové jízdy — používá ho Evidence jízd i obě stránky Velké dopravy (mají
+// vlastní #jizdaModal/#jizdaForm ve svém vykresleném obsahu, jen se po uložení vrátí na svou sekci).
+function bindJizdaForm(sekceProRenderPoUlozeni) {
   document.getElementById('jizdaForm').addEventListener('submit', (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const vozidlo = fd.get('vozidlo');
-    state.jizdy.unshift({ id: Date.now(), datum: fd.get('datum'), ridic: fd.get('ridic'), driverId: idRidiceZVyberu(fd.get('ridic')), vozidlo, trasaOd: fd.get('trasaOd'), trasaDo: fd.get('trasaDo'), km: +fd.get('km'), poznamka: fd.get('poznamka'), financni: null });
+    state.jizdy.unshift({
+      id: Date.now(), datum: fd.get('datum'), ridic: fd.get('ridic'), driverId: idRidiceZVyberu(fd.get('ridic')),
+      vozidlo, typ: fd.get('typ') === 'eu' ? 'eu' : 'cz', trasaOd: fd.get('trasaOd'), trasaDo: fd.get('trasaDo'),
+      km: +fd.get('km'), poznamka: fd.get('poznamka'), financni: null
+    });
     if (state.role === 'driver' && state.driverId) {
       state.lastVozidloPerDriver[state.driverId] = vozidlo;
     }
-    saveState(); closeModal('jizdaModal'); renderSection('jizdy');
+    saveState(); closeModal('jizdaModal'); renderSection(sekceProRenderPoUlozeni);
   });
-
-  if (isOwner) wireFinanceModal();
 }
 
 // ==========================================================
@@ -923,7 +944,7 @@ function wireFinanceModal() {
     };
     const idx = state.jizdy.findIndex(j=>j.id===jizdaId);
     if (idx>=0) state.jizdy[idx].financni = financni;
-    saveState(); closeModal('financeModal'); renderSection('jizdy');
+    saveState(); closeModal('financeModal'); renderSection(aktualniSekceNazev('jizdy'));
   });
 }
 
@@ -935,9 +956,10 @@ window.openFinance = function(id) {
   openModal('financeModal');
 };
 
-function renderJizdaModal() {
+function renderJizdaModal(vychoziTyp) {
   const dnes = new Date().toISOString().slice(0,10);
   const isDriver = state.role === 'driver';
+  const jeEu = vychoziTyp === 'eu';
   return `
     <div class="modal-overlay" id="jizdaModal">
       <div class="modal">
@@ -951,6 +973,12 @@ function renderJizdaModal() {
                 ${state.ridici.length===0?'<option>Nejprve přidej řidiče</option>':''}
               </select>
             </div>
+          </div>
+          <div class="form-row"><label>Typ dopravy *</label>
+            <select name="typ" required>
+              <option value="cz" ${!jeEu?'selected':''}>🚚 Velká doprava CZ (vnitrostátní)</option>
+              <option value="eu" ${jeEu?'selected':''}>🌍 Velká doprava EU (mezinárodní)</option>
+            </select>
           </div>
           <div class="form-row"><label>Vozidlo *</label>
             <select name="vozidlo" required>
@@ -978,16 +1006,118 @@ function renderJizdaModal() {
     </div>
   `;
 }
-window.deleteJizda = function(id) { if(!confirm('Smazat jízdu?')) return; state.jizdy = state.jizdy.filter(j=>j.id!==id); saveState(); renderSection('jizdy'); };
+window.deleteJizda = function(id) { if(!confirm('Smazat jízdu?')) return; state.jizdy = state.jizdy.filter(j=>j.id!==id); saveState(); renderSection(aktualniSekceNazev('jizdy')); };
 
 function exportJizdyCSV() {
   const isOwner = state.role === 'owner';
   const mesic = document.getElementById('jizdyMesic')?.value || '';
   let list = mojeJizdy();
   if (mesic) list = list.filter(j => j.datum.startsWith(mesic));
-  const rows = [['Datum','Řidič','Vozidlo','Odkud','Kam','km','Poznámka'], ...list.map(j=>[j.datum,j.ridic,j.vozidlo,j.trasaOd,j.trasaDo,j.km,j.poznamka||''])];
+  const rows = [['Datum','Typ','Řidič','Vozidlo','Odkud','Kam','km','Poznámka'], ...list.map(j=>[j.datum,(j.typ||'cz')==='eu'?'EU':'CZ',j.ridic,j.vozidlo,j.trasaOd,j.trasaDo,j.km,j.poznamka||''])];
   const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   downloadFile('jizdy.csv','text/csv;charset=utf-8;','\uFEFF'+csv);
+}
+
+// ==========================================================
+// VELKÁ DOPRAVA — CZ (vnitrostátní) a EU (mezinárodní), dvě stránky nad stejnou evidencí jízd
+// ==========================================================
+const VELKA_DOPRAVA_INFO = {
+  cz: { nazev: 'Velká doprava (CZ – vnitrostátní)', ikona: '🚚', popis: 'Vnitrostátní přepravy po celé ČR.' },
+  eu: { nazev: 'Velká doprava EU (zahraničí)', ikona: '🌍', popis: 'Mezinárodní přepravy po Evropě.' }
+};
+
+// Jízdy přihlášeného (majitel všechny, řidič své) filtrované na jeden typ dopravy
+function jizdyPodleTypu(typ) {
+  return mojeJizdy().filter(j => (j.typ || 'cz') === typ);
+}
+
+function renderVelkaDoprava(typ) {
+  const info = VELKA_DOPRAVA_INFO[typ];
+  const isOwner = state.role === 'owner';
+  const list = jizdyPodleTypu(typ);
+  const kmCelkem = list.reduce((s,j)=>s+(+j.km||0),0);
+
+  // Ziskovost — jen jízdy, kde je finance vyplněné (stejná logika jako v Reportech)
+  const listFinance = list.filter(j => j.financni);
+  let sumFakturovano = 0, sumNaklady = 0;
+  listFinance.forEach(j => {
+    const f = j.financni;
+    sumFakturovano += (+f.fakturovano||0);
+    sumNaklady += (+f.palivo||0)+(+f.mytne||0)+(+f.clo||0)+(+f.amortizace||0)+(+f.pojisteni||0)+(+f.ridicNaklad||0)+(+f.ostatni||0);
+  });
+  const sumZisk = sumFakturovano - sumNaklady;
+  const marze = sumFakturovano > 0 ? (sumZisk/sumFakturovano*100).toFixed(1) : '0.0';
+
+  return `
+    <div class="page-head">
+      <div><h1>${info.ikona} ${info.nazev}</h1><p>${info.popis} ${isOwner ? 'Přehled všech jízd — filtruj, hledej, exportuj.' : 'Tvoje jízdy.'}</p></div>
+      <div class="page-actions"><button class="btn btn-primary" id="btnAddJizdaVelka">+ Nová jízda</button></div>
+    </div>
+
+    ${isOwner ? `
+    <div class="metrics" style="margin-bottom:20px;">
+      <div class="metric"><div class="m-label">Počet jízd</div><div class="m-value">${list.length}</div></div>
+      <div class="metric"><div class="m-label">Km celkem</div><div class="m-value">${kmCelkem.toLocaleString('cs-CZ')}</div></div>
+      <div class="metric"><div class="m-label">Tržby</div><div class="m-value">${sumFakturovano.toLocaleString('cs-CZ')} Kč</div>${listFinance.length < list.length ? `<div class="m-delta neutral">${listFinance.length}/${list.length} jízd s financemi</div>` : ''}</div>
+      <div class="metric"><div class="m-label">Čistý zisk</div><div class="m-value" style="color:${sumZisk>=0?'var(--green)':'var(--red)'};">${sumZisk.toLocaleString('cs-CZ')} Kč</div><div class="m-delta neutral">marže ${marze} %</div></div>
+    </div>
+    ` : ''}
+
+    <div class="table-wrap">
+      <div class="table-toolbar">
+        <input type="text" id="velkaFilter" placeholder="Hledat (řidič, trasa, vozidlo...)">
+        <select id="velkaMesic">
+          <option value="">Všechny měsíce</option>
+          ${posledni12Mesicu().map(m => `<option value="${m.value}">${m.label}</option>`).join('')}
+        </select>
+        <div class="spacer"></div>
+        <button class="btn btn-ghost btn-sm" id="btnExportVelka">📥 Export CSV</button>
+      </div>
+      <table class="data-table">
+        <thead><tr><th>Datum</th><th>Řidič</th><th>Vozidlo</th><th>Trasa</th><th style="text-align:right">km</th><th>Poznámka</th>${isOwner?'<th style="text-align:right">Zisk</th><th></th>':''}</tr></thead>
+        <tbody id="velkaBody">${renderJizdyRows(list, isOwner, false)}</tbody>
+      </table>
+    </div>
+    ${renderJizdaModal(typ)}
+    ${renderFinanceModal()}
+  `;
+}
+
+function bindVelkaDoprava(typ) {
+  const isOwner = state.role === 'owner';
+  const sekce = typ === 'eu' ? 'velka-eu' : 'velka-cz';
+  document.getElementById('btnAddJizdaVelka').addEventListener('click', () => openModal('jizdaModal'));
+  document.getElementById('btnExportVelka').addEventListener('click', () => exportVelkaDopravaCSV(typ));
+
+  function applyFilter() {
+    const q = (document.getElementById('velkaFilter').value||'').toLowerCase();
+    const m = document.getElementById('velkaMesic').value;
+    let list = jizdyPodleTypu(typ);
+    if (q) list = list.filter(j => `${j.ridic} ${j.trasaOd} ${j.trasaDo} ${j.vozidlo} ${j.poznamka||''}`.toLowerCase().includes(q));
+    if (m) list = list.filter(j => j.datum.startsWith(m));
+    document.getElementById('velkaBody').innerHTML = renderJizdyRows(list, isOwner, false);
+  }
+  document.getElementById('velkaFilter').addEventListener('input', applyFilter);
+  document.getElementById('velkaMesic').addEventListener('change', applyFilter);
+
+  bindJizdaForm(sekce);
+  if (isOwner) wireFinanceModal();
+}
+
+// Export jízd dané kategorie (CZ/EU) i s financemi — podklad pro účetnictví/fakturaci
+function exportVelkaDopravaCSV(typ) {
+  const mesic = document.getElementById('velkaMesic')?.value || '';
+  let list = jizdyPodleTypu(typ);
+  if (mesic) list = list.filter(j => j.datum.startsWith(mesic));
+  const rows = [['Datum','Řidič','Vozidlo','Odkud','Kam','km','Fakturováno Kč','Náklady Kč','Zisk Kč','Poznámka'], ...list.map(j => {
+    const f = j.financni;
+    const naklady = f ? (+f.palivo||0)+(+f.mytne||0)+(+f.clo||0)+(+f.amortizace||0)+(+f.pojisteni||0)+(+f.ridicNaklad||0)+(+f.ostatni||0) : '';
+    const fakturovano = f ? (+f.fakturovano||0) : '';
+    const zisk = f ? ((+f.fakturovano||0) - naklady) : '';
+    return [j.datum, j.ridic, j.vozidlo, j.trasaOd, j.trasaDo, j.km, fakturovano, naklady, zisk, j.poznamka||''];
+  })];
+  const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  downloadFile(`velka-doprava-${typ}-${mesic||'vse'}.csv`,'text/csv;charset=utf-8;',String.fromCharCode(0xFEFF)+csv);
 }
 
 // ==========================================================
