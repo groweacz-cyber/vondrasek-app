@@ -1765,6 +1765,27 @@ window.deleteZakazka = function(id) { if(!confirm('Smazat zakázku?')) return; s
 // ==========================================================
 let malaDopravaMonthOffset = 0;
 
+// Souhrn vícenákladů z objížděk za měsíc, po trasách — jen km NAVÍC (ne základní km trasy), pro fakturaci
+// platci. Dny "nejelo" se nepočítají (stejně jako jinde v appce). Paušálové trasy nemají Kč/km, takže se
+// u nich vícenáklad nedá takhle vyčíslit — km se pro přehled sečtou, ale částka zůstane 0/„paušál".
+function vicenakladyObjizdekMesic(year, month, daysInMonth) {
+  const radky = PNS_ROUTES.map(route => {
+    const cfg = state.pnsRouteConfig[route];
+    let dny = 0, km = 0;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const iso = toISO(new Date(year, month, d));
+      if (!isDrivingDay(iso)) continue;
+      const eff = efektivniTrasaDen(route, iso);
+      if (eff.nejelo || eff.objizdkaKm <= 0) continue;
+      dny++; km += eff.objizdkaKm;
+    }
+    const jePausal = cfg.cenovyModel === 'pausal';
+    const cenaZaKm = +cfg.cenaZaKm || 0;
+    return { route, dny, km, cenaZaKm, jePausal, vicenaklad: jePausal ? 0 : km * cenaZaKm };
+  });
+  return { radky, sumKm: radky.reduce((s, r) => s + r.km, 0), sumVicenaklad: radky.reduce((s, r) => s + r.vicenaklad, 0) };
+}
+
 function renderMalaDoprava() {
   const now = new Date();
   const viewDate = new Date(now.getFullYear(), now.getMonth() + malaDopravaMonthOffset, 1);
@@ -1791,6 +1812,7 @@ function renderMalaDoprava() {
   }
   const sumZisk = sumPrijem - sumNaklady;
   const marze = sumPrijem > 0 ? (sumZisk/sumPrijem*100).toFixed(1) : '0.0';
+  const vic = vicenakladyObjizdekMesic(year, month, daysInMonth);
 
   return `
     <div class="page-head">
@@ -1829,6 +1851,36 @@ function renderMalaDoprava() {
         <div class="metric"><div class="m-label">Náklady (odhad)</div><div class="m-value">${sumNaklady.toLocaleString('cs-CZ')} Kč</div></div>
         <div class="metric"><div class="m-label">Čistý zisk</div><div class="m-value" style="color:${sumZisk>=0?'var(--green)':'var(--red)'};">${sumZisk.toLocaleString('cs-CZ')} Kč</div><div class="m-delta neutral">marže ${marze} %</div></div>
       </div>
+    </div>
+
+    <div class="card-panel" style="margin-bottom:20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:4px;">
+        <div>
+          <h3 style="margin-bottom:4px;">💶 Vícenáklady z objížděk — ${monthNames[month]} ${year}</h3>
+          <p class="csub" style="margin-bottom:0;">Jen km navíc (ne základní km trasy) × cena za km, po trasách — podklad k fakturaci platci za objížďky tohoto měsíce.</p>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="btnExportVicenaklady">📥 Export k fakturaci (CSV)</button>
+      </div>
+      <table class="data-table" style="margin-top:14px;">
+        <thead><tr><th>Trasa</th><th style="text-align:right">Dní s objížďkou</th><th style="text-align:right">Km navíc</th><th style="text-align:right">Cena/km</th><th style="text-align:right">Vícenáklad</th></tr></thead>
+        <tbody>
+          ${vic.radky.map(r => `
+            <tr>
+              <td>${r.route}</td>
+              <td style="text-align:right">${r.dny || '—'}</td>
+              <td style="text-align:right">${r.km>0 ? r.km.toLocaleString('cs-CZ')+' km' : '—'}</td>
+              <td style="text-align:right">${r.jePausal ? 'paušál' : (r.cenaZaKm ? r.cenaZaKm.toLocaleString('cs-CZ')+' Kč' : '—')}</td>
+              <td style="text-align:right">${r.jePausal ? '<span style="color:var(--dim);">— paušál</span>' : (r.vicenaklad>0 ? '<b>'+r.vicenaklad.toLocaleString('cs-CZ')+' Kč</b>' : '—')}</td>
+            </tr>
+          `).join('')}
+          <tr style="font-weight:700;">
+            <td>CELKEM</td><td></td>
+            <td style="text-align:right">${vic.sumKm.toLocaleString('cs-CZ')} km</td><td></td>
+            <td style="text-align:right; color:var(--amber);">${vic.sumVicenaklad.toLocaleString('cs-CZ')} Kč</td>
+          </tr>
+        </tbody>
+      </table>
+      ${vic.sumVicenaklad === 0 ? `<p style="font-size:12.5px; color:var(--dim); font-style:italic; margin-top:10px;">Tento měsíc zatím žádné vyčíslitelné vícenáklady z objížděk.</p>` : ''}
     </div>
 
     <div class="card-panel">
@@ -2389,6 +2441,7 @@ function bindMalaDoprava() {
   document.getElementById('btnMesicDal').addEventListener('click', () => { malaDopravaMonthOffset++; renderSection('mala-doprava'); });
   document.getElementById('btnExportMalaMesic').addEventListener('click', exportMalaDopravaMesicCSV);
   document.getElementById('btnExportMalaVyjimky').addEventListener('click', exportMalaDopravaVyjimkyCSV);
+  document.getElementById('btnExportVicenaklady').addEventListener('click', exportVicenakladyObjizdekCSV);
   bindHromadnaObjizdka();
 }
 
@@ -2428,6 +2481,18 @@ function exportMalaDopravaMesicCSV() {
   const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const mesicStr = `${year}-${String(month+1).padStart(2,'0')}`;
   downloadFile(`mala-doprava-${mesicStr}.csv`, 'text/csv;charset=utf-8;', '﻿'+csv);
+}
+
+// Export vícenákladů z objížděk pro fakturaci platci — jeden řádek na trasu, součty za zobrazený měsíc
+function exportVicenakladyObjizdekCSV() {
+  const { year, month, daysInMonth } = malaDopravaAktualniMesic();
+  const vic = vicenakladyObjizdekMesic(year, month, daysInMonth);
+  const rows = [['Trasa','Dní s objížďkou','Km navíc celkem','Cena za km Kč','Vícenáklad Kč']];
+  vic.radky.forEach(r => rows.push([r.route, r.dny, r.km, r.jePausal ? 'paušál' : r.cenaZaKm, r.vicenaklad]));
+  rows.push(['CELKEM', '', vic.sumKm, '', vic.sumVicenaklad]);
+  const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const mesicStr = `${year}-${String(month+1).padStart(2,'0')}`;
+  downloadFile(`objizdky-vicenaklady-${mesicStr}.csv`, 'text/csv;charset=utf-8;', '﻿'+csv);
 }
 
 // Export výjimek k fakturaci — jeden řádek na každou zapsanou výjimku v měsíci

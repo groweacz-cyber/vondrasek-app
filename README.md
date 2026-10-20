@@ -43,6 +43,10 @@ Majitel vidí a spravuje **všechna** data, řidič vidí jen svoje jízdy a tan
   trasu ověří podle toho, kde je vedený jako stálý řidič) a km se hned promítnou majiteli do Malé dopravy u daného
   dne a trasy (jen ta jedna výjimka, zbytek dne zůstane beze změny). Majitel hlášení vidí na dashboardu, klik na
   něj otevře ten den v Malé dopravě a označí hlášení za přečtené.
+- **Vícenáklady z objížděk k fakturaci**: v Malé dopravě je karta se souhrnem za zobrazený měsíc — po trasách km
+  navíc (ne základní km trasy), cena za km a vícenáklad v Kč, s řádkem CELKEM a exportem do CSV
+  (`objizdky-vicenaklady-RRRR-MM.csv`). Paušálové trasy nemají Kč/km, takže se u nich vícenáklad nepočítá (km se
+  jen sečtou pro přehled).
 
 ## Nastavení na Vercelu (jednorázově)
 
@@ -67,6 +71,7 @@ Majitel vidí a spravuje **všechna** data, řidič vidí jen svoje jízdy a tan
 - [x] Sdílená data na serveru: majitel vidí všechno, co zapíšou řidiči
 - [x] Přihlášení PINem ověřované serverem (majitel + řidiči), změna PINů v appce
 - [x] Řidič nahlásí objížďku z dashboardu — promítne se do Malé dopravy a majitel ji vidí
+- [x] Měsíční souhrn vícenákladů z objížděk po trasách + export k fakturaci platci
 - [ ] Skutečné účty (e-mail + heslo) místo PINů, historie změn (audit)
 - [ ] Náborový chatbot (rule-based)
 - [ ] Fáze 2 sekce (správce poptávek, marketing)
