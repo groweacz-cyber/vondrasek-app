@@ -1,5 +1,5 @@
 /* =========================================================
-   VONDRÁŠEK — PROVOZNÍ SYSTÉM v2
+   VONDRÁŠEK — PROVOZNÍ SYSTÉM
    + Editace vozidel/řidičů/zakázek
    + Filtrování zakázek podle stavu
    + Export jízd podle měsíce
@@ -7,70 +7,38 @@
    + Barevné karty zakázek
 ========================================================= */
 
-// ---------- OSTRÝ PROVOZ ----------
-// Klíč v2 = ostrá verze. Zkušební data ze starého klíče (vondrasek_app_v1) se vůbec nenačítají,
-// takže systém startuje prázdný; staré záznamy v prohlížeči jen leží nepoužité a nic nerozbíjejí.
-const STORAGE_KEY = 'vondrasek_app_v2';
+// Data žijí na serveru — pracovní kopie `state`, saveState() a přihlášení jsou v sync.js.
+// Tady zůstává jen seznam tras PNS a doplnění chybějící konfigurace trasy.
+const PNS_ROUTES = ['20001','20004','20011','20016','20041','20042','20043','20044','20045','20058','20063','20064','20066'];
 
-// PIN majitele — přihlášení "Majitel / dispečer".
-const OWNER_PIN = '5294';
-
-// Řidiči stálých tras PNS: jeden řidič a jeden PIN na trasu. Jména jsou zatím zástupná
-// ("20001 Řidič") — majitel je v sekci Řidiči přepíše na skutečná jména (vazba na trasu
-// a zapsané jízdy se při přejmenování přenesou). První slovo jména musí zůstat unikátní,
-// podle něj appka řidiči filtruje jeho jízdy. Seznam tras musí odpovídat PNS_ROUTES níže.
-const RIDICI_TRAS = [
-  { trasa: '20001', pin: '8536' }, { trasa: '20004', pin: '8042' }, { trasa: '20011', pin: '3064' },
-  { trasa: '20016', pin: '4285' }, { trasa: '20041', pin: '8597' }, { trasa: '20042', pin: '7359' },
-  { trasa: '20043', pin: '4257' }, { trasa: '20044', pin: '9248' }, { trasa: '20045', pin: '7241' },
-  { trasa: '20058', pin: '1290' }, { trasa: '20063', pin: '6945' }, { trasa: '20064', pin: '9742' },
-  { trasa: '20066', pin: '3795' }
-];
-const zastupneJmenoRidiceTrasy = (trasa) => trasa + ' Řidič';
-
-const state = loadState() || {
-  role: null, driverName: null, driverId: null,
-  jizdy: seedJizdy(), tankovani: seedTankovani(),
-  vozidla: seedVozidla(), ridici: seedRidici(), zakazky: seedZakazky(),
-  lastVozidloPerDriver: {} // { driverId: 'SPZ' } — appka si pamatuje poslední použité vozidlo
-};
-
-function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-function loadState() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; } }
-if (!state.lastVozidloPerDriver) state.lastVozidloPerDriver = {};
-if (!state.malaDoprava) state.malaDoprava = {}; // { 'YYYY-MM-DD': { trasy: {'20001':{objizdkaKm:0}}, ridic, nakladyRidic, nakladyAuto, nakladyOstatni } }
-if (state.posledniZaloha === undefined) state.posledniZaloha = null; // ISO timestamp poslední stažené zálohy (null = ještě žádná)
-if (state.posledniNotifikace === undefined) state.posledniNotifikace = null; // ISO datum (YYYY-MM-DD) posledního odeslání browser notifikací — max 1x denně
-if (!state.pnsRouteConfig) {
-  state.pnsRouteConfig = {};
-}
-// Zajistí, že konfigurace existuje pro všechny trasy (i nově přidané), a doplní chybějící pole u starších záznamů
+// Zajistí, že konfigurace existuje pro všechny trasy (i nově přidané), a doplní chybějící pole.
+// Volá se u majitele po stažení dat ze serveru (nikdy dřív, ať se nepřepíše to, co na serveru už je).
 function ensureRouteConfig() {
   PNS_ROUTES.forEach(r => {
     if (!state.pnsRouteConfig[r]) {
-      const ridicTrasy = RIDICI_TRAS.some(t => t.trasa === r) ? zastupneJmenoRidiceTrasy(r) : '';
-      state.pnsRouteConfig[r] = { cenovyModel: 'km', cenaZaKm: 0, kmZaDen: 0, pausalZaDen: 0, odhadNakladuZaDen: 0, stalyRidic: ridicTrasy };
+      state.pnsRouteConfig[r] = { cenovyModel: 'km', cenaZaKm: 0, kmZaDen: 0, pausalZaDen: 0, odhadNakladuZaDen: 0, stalyRidic: '' };
     } else if (state.pnsRouteConfig[r].stalyRidic === undefined) {
       state.pnsRouteConfig[r].stalyRidic = '';
     }
   });
 }
 
-const PNS_ROUTES = ['20001','20004','20011','20016','20041','20042','20043','20044','20045','20058','20063','20064','20066'];
-ensureRouteConfig();
-
-// Jednorázová migrace: toISO() dřív počítal datum přes UTC, což v ČR (UTC+1/+2) posouvalo
-// uložené klíče state.malaDoprava o den zpět. Posuneme je o den dopředu (inverze staré chyby).
-if (!state.malaDopravaDateFixApplied) {
-  const opravene = {};
-  Object.keys(state.malaDoprava).forEach(staryIso => {
-    const [y, m, d] = staryIso.split('-').map(Number);
-    opravene[toISO(new Date(y, m - 1, d + 1, 12))] = state.malaDoprava[staryIso];
-  });
-  state.malaDoprava = opravene;
-  state.malaDopravaDateFixApplied = true;
-  saveState();
+// Jízdy přihlášeného: majitel všechny, řidič jen své (server mu stejně pošle jen jeho)
+function mojeJizdy() {
+  return state.role === 'owner' ? state.jizdy : state.jizdy.filter(j => String(j.driverId) === String(state.driverId));
 }
+// Řidiči k výběru ve formulářích: majitel všechny, řidič jen sám sebe
+function ridiciProVyber() {
+  return state.role === 'owner' ? state.ridici : state.ridici.filter(r => String(r.id) === String(state.driverId));
+}
+// ID řidiče podle zkráceného jména z výběru ("Jan N."); řidič zapisuje vždy sám za sebe
+function idRidiceZVyberu(kratke) {
+  if (state.role === 'driver') return state.driverId;
+  const r = state.ridici.find(r => kratkeJmenoRidice(r.jmeno) === kratke);
+  return r ? r.id : null;
+}
+// Bezpečný zápis hodnoty do HTML atributu (adresy fotek obsahují &)
+const hAttr = (x) => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 
 // ---------- ČESKÉ STÁTNÍ SVÁTKY ----------
 function easterSunday(year) {
@@ -185,34 +153,22 @@ function vypocetKmDne(iso) {
 }
 
 
-// Ostrý provoz startuje bez dat: jízdy, tankování, vozidla a zakázky se zadávají přímo v appce.
-function seedJizdy() { return []; }
-function seedTankovani() { return []; }
-function seedVozidla() { return []; }
-function seedZakazky() { return []; }
-// Jediné předvyplněné záznamy jsou řidiči stálých tras PNS (kvůli PINům) — viz RIDICI_TRAS nahoře.
-function seedRidici() {
-  return RIDICI_TRAS.map((t, i) => ({
-    id: i + 1, jmeno: zastupneJmenoRidiceTrasy(t.trasa), telefon: '', skupina: '—',
-    kartaRidice: '', profesniPrukaz: '', posledniStazeniKarty: null, pin: t.pin
-  }));
-}
-
 // ---------- LOGIN ----------
-// Majitel i řidič se přihlašují čtyřmístným PINem; režim určuje, který PIN se ověřuje.
+// Majitel i řidič se přihlašují čtyřmístným PINem; PIN ověřuje server (v appce žádné PINy nejsou).
 let loginRezim = 'driver'; // 'owner' | 'driver'
 
 function otevriPinKrok(rezim) {
   loginRezim = rezim;
   document.getElementById('pinTitle').textContent = rezim === 'owner' ? '👔 Přihlášení majitele' : '👷 Přihlášení řidiče';
-  document.getElementById('pinError').textContent = rezim === 'owner'
-    ? 'PIN nebyl rozpoznán — zkus to znovu.'
-    : 'PIN nebyl rozpoznán — zkus to znovu nebo se zeptej majitele.';
   document.getElementById('loginStep1').hidden = true;
   document.getElementById('loginStep2').hidden = false;
   document.getElementById('pinInput').value = '';
-  document.getElementById('pinError').hidden = true;
+  zobrazChybuPinu('');
   document.getElementById('pinInput').focus();
+}
+function zobrazChybuPinu(text) {
+  const el = document.getElementById('pinError');
+  el.textContent = text; el.hidden = !text;
 }
 document.querySelector('[data-role="owner"]').addEventListener('click', () => otevriPinKrok('owner'));
 document.getElementById('btnDriverLogin').addEventListener('click', () => otevriPinKrok('driver'));
@@ -222,22 +178,23 @@ document.getElementById('btnPinBack').addEventListener('click', () => {
   document.getElementById('loginStep1').hidden = false;
 });
 
-function tryPinLogin() {
+let prihlasuje = false;
+async function tryPinLogin() {
+  if (prihlasuje) return;
   const pin = document.getElementById('pinInput').value.trim();
-  const ridic = loginRezim === 'driver' ? state.ridici.find(r => r.pin === pin) : null;
-  const ok = loginRezim === 'owner' ? pin === OWNER_PIN : !!ridic;
-  if (!ok) {
-    document.getElementById('pinError').hidden = false;
+  if (!/^\d{4}$/.test(pin)) { zobrazChybuPinu('Zadej čtyřmístný PIN.'); return; }
+  const tlacitko = document.getElementById('btnPinConfirm');
+  prihlasuje = true; tlacitko.disabled = true; tlacitko.textContent = 'Přihlašuji…';
+  try {
+    await prihlasitPinem(loginRezim, pin);
+    showApp();
+  } catch (e) {
+    zobrazChybuPinu(e.status === 401 ? (loginRezim === 'owner' ? 'PIN nebyl rozpoznán — zkus to znovu.' : 'PIN nebyl rozpoznán — zkus to znovu nebo se zeptej majitele.') : e.message);
     document.getElementById('pinInput').value = '';
     document.getElementById('pinInput').focus();
-    return;
+  } finally {
+    prihlasuje = false; tlacitko.disabled = false; tlacitko.textContent = 'Přihlásit se';
   }
-  if (loginRezim === 'owner') {
-    state.role = 'owner'; state.driverName = null; state.driverId = null;
-  } else {
-    state.role = 'driver'; state.driverName = ridic.jmeno; state.driverId = ridic.id;
-  }
-  saveState(); showApp();
 }
 document.getElementById('btnPinConfirm').addEventListener('click', tryPinLogin);
 document.getElementById('pinInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') tryPinLogin(); });
@@ -245,13 +202,18 @@ document.getElementById('pinInput').addEventListener('input', (e) => {
   e.target.value = e.target.value.replace(/\D/g, '').slice(0, 4);
 });
 
-document.getElementById('logoutBtn').addEventListener('click', () => {
-  state.role = null; state.driverName = null; state.driverId = null; saveState();
+function zobrazPrihlaseni(zprava) {
   document.getElementById('app').hidden = true;
   document.getElementById('loginOverlay').style.display = 'flex';
   document.getElementById('loginStep1').hidden = false;
   document.getElementById('loginStep2').hidden = true;
+  const hl = document.getElementById('loginMessage');
+  hl.textContent = zprava || ''; hl.hidden = !zprava;
+}
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  if (await odhlasit()) zobrazPrihlaseni();
 });
+
 function showApp() {
   document.getElementById('pinInput').value = '';
   document.getElementById('loginOverlay').style.display = 'none';
@@ -262,12 +224,17 @@ function showApp() {
   document.getElementById('userName').textContent = isOwner ? 'Majitel' : state.driverName;
   document.getElementById('userRole').textContent = isOwner ? 'Plný přístup' : 'Vidí jen svoje';
   applyDriverView(!isOwner);
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.section === 'dashboard'));
   renderSection('dashboard');
   posliNotifikaceProUpozorneni();
+  nastavStav(sync.stav);
+  zacniSynchronizaci();
+  synchronizuj();
 }
-// Řidič má zamčené menu kromě svých sekcí; při přepnutí zpět na majitele (bez obnovení stránky) se zámek zruší
+// Řidič vidí jen dashboard, jízdy a tankování (vlastní); zbytek menu je zamčený.
+// Při přepnutí zpět na majitele (bez obnovení stránky) se zámek zruší.
 function applyDriverView(jeRidic) {
-  const allowed = ['dashboard', 'jizdy', 'tankovani', 'mala-doprava'];
+  const allowed = ['dashboard', 'jizdy', 'tankovani'];
   document.querySelectorAll('.nav-item').forEach(item => {
     item.style.opacity = ''; item.style.pointerEvents = '';
     if (jeRidic && !allowed.includes(item.dataset.section)) {
@@ -293,6 +260,7 @@ document.getElementById('menuToggle').addEventListener('click', () => {
 
 // ---------- ROUTER ----------
 function renderSection(name) {
+  if (state.role === 'driver' && !['dashboard', 'jizdy', 'tankovani'].includes(name)) name = 'dashboard';
   const content = document.getElementById('content');
   document.getElementById('topbarTitle').textContent = SECTIONS[name]?.title || 'Dashboard';
   content.innerHTML = (SECTIONS[name] || SECTIONS.dashboard).render();
@@ -329,7 +297,7 @@ const SECTIONS = {
 // ==========================================================
 function renderDashboard() {
   const isOwner = state.role === 'owner';
-  const myJizdy = isOwner ? state.jizdy : state.jizdy.filter(j => j.ridic.startsWith((state.driverName||'').split(' ')[0]));
+  const myJizdy = mojeJizdy();
   const kmCelkem = myJizdy.reduce((s,j) => s + (+j.km||0), 0);
   const litryCelkem = state.tankovani.reduce((s,t) => s + (+t.litry||0), 0);
   const nakladyPHM = state.tankovani.reduce((s,t) => s + (+t.cenaCelkem||0), 0);
@@ -350,6 +318,13 @@ function renderDashboard() {
       </div>
     </div>
 
+    ${isOwner && sync.me && sync.me.mustChangePin ? `
+    <div class="card-panel" style="margin-bottom:20px; border-color:var(--amber);">
+      <h3>⚠️ Změň si PIN majitele</h3>
+      <p class="csub">Výchozí PIN není tajný (byl dřív veřejně v kódu appky). Nastav si vlastní, ať se k datům nedostane nikdo cizí.</p>
+      <button class="btn btn-primary btn-sm" onclick="openPinDialog('owner','majitele')">🔑 Změnit PIN</button>
+    </div>` : ''}
+
     <div class="metrics">
       <div class="metric"><div class="m-label">Najeté km</div><div class="m-value">${kmCelkem.toLocaleString('cs-CZ')}</div><div class="m-delta">▲ celkem</div></div>
       <div class="metric"><div class="m-label">Počet jízd</div><div class="m-value">${myJizdy.length}</div><div class="m-delta">▲ celkem</div></div>
@@ -361,7 +336,7 @@ function renderDashboard() {
       <div class="metric"><div class="m-label">Náklady PHM</div><div class="m-value">${nakladyPHM.toLocaleString('cs-CZ')} Kč</div><div class="m-delta neutral">celkem</div></div>
     </div>
 
-    ${renderDnesekMalaDoprava()}
+    ${isOwner ? renderDnesekMalaDoprava() : ''}
 
     <!-- GRAF -->
     <div class="card-panel" style="margin-bottom:20px;">
@@ -414,7 +389,7 @@ function renderDashboard() {
     ${isOwner ? `
     <div class="card-panel" style="margin-top:20px;">
       <h3>💾 Záloha dat</h3>
-      <p class="csub">Data appky žijí jen v tomto prohlížeči — zálohuj pravidelně, ať o nic nepřijdeš.</p>
+      <p class="csub">Data jsou uložená na serveru a vidí je majitel i řidiči (každý své). Záloha do souboru je jen pojistka navíc — bez fotek účtenek.</p>
       ${renderZalohaStatus()}
       <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
         <button class="btn btn-primary btn-sm" id="btnStahnoutZalohu">⬇️ Stáhnout zálohu</button>
@@ -554,11 +529,15 @@ function bindDashboard() {
         alert('Tento soubor nevypadá jako záloha appky Vondrášek — chybí očekávaná data (jízdy, vozidla, řidiči).');
         return;
       }
-      if (!confirm('Obnovit ze zálohy PŘEPÍŠE všechna aktuální data v appce. Tato akce je nevratná. Pokračovat?')) return;
+      if (!confirm('Obnovit ze zálohy PŘEPÍŠE všechna data na serveru — změna se projeví u všech (i u řidičů). Tato akce je nevratná. Pokračovat?')) return;
+      const rel = nactiRelaci();
       Object.keys(state).forEach(k => delete state[k]);
-      Object.assign(state, data);
-      saveState();
-      location.reload();
+      Object.assign(state, novyPrazdnyStav(), data);
+      state.role = rel.role; state.driverId = rel.driverId; state.driverName = rel.driverName;
+      state.ridici.forEach(r => { delete r.pin; });   // PINy se do serveru nikdy neposílají
+      ulozKopii();
+      odesli().then(() => { alert('Záloha je obnovena.'); location.reload(); })
+              .catch(err => alert('Obnovení se nepodařilo dokončit: ' + err.message + '\nZkus to znovu s připojením k internetu.'));
     };
     reader.readAsText(file);
   });
@@ -629,7 +608,7 @@ function renderUpozorneni() {
 // ==========================================================
 function renderJizdy() {
   const isOwner = state.role === 'owner';
-  const list = isOwner ? state.jizdy : state.jizdy.filter(j => j.ridic.startsWith((state.driverName||'').split(' ')[0]));
+  const list = mojeJizdy();
   return `
     <div class="page-head">
       <div><h1>🛣️ Evidence jízd</h1><p>${isOwner ? 'Přehled všech jízd — filtruj, hledej, exportuj.' : 'Tvoje jízdy.'}</p></div>
@@ -688,7 +667,7 @@ function bindJizdy() {
   function applyFilter() {
     const q = (document.getElementById('jizdyFilter').value||'').toLowerCase();
     const m = document.getElementById('jizdyMesic').value;
-    let list = isOwner ? state.jizdy : state.jizdy.filter(j => j.ridic.startsWith((state.driverName||'').split(' ')[0]));
+    let list = mojeJizdy();
     if (q) list = list.filter(j => `${j.ridic} ${j.trasaOd} ${j.trasaDo} ${j.vozidlo} ${j.poznamka||''}`.toLowerCase().includes(q));
     if (m) list = list.filter(j => j.datum.startsWith(m));
     document.getElementById('jizdyBody').innerHTML = renderJizdyRows(list, isOwner);
@@ -700,7 +679,7 @@ function bindJizdy() {
     e.preventDefault();
     const fd = new FormData(e.target);
     const vozidlo = fd.get('vozidlo');
-    state.jizdy.unshift({ id: Date.now(), datum: fd.get('datum'), ridic: fd.get('ridic'), vozidlo, trasaOd: fd.get('trasaOd'), trasaDo: fd.get('trasaDo'), km: +fd.get('km'), poznamka: fd.get('poznamka'), financni: null });
+    state.jizdy.unshift({ id: Date.now(), datum: fd.get('datum'), ridic: fd.get('ridic'), driverId: idRidiceZVyberu(fd.get('ridic')), vozidlo, trasaOd: fd.get('trasaOd'), trasaDo: fd.get('trasaDo'), km: +fd.get('km'), poznamka: fd.get('poznamka'), financni: null });
     if (state.role === 'driver' && state.driverId) {
       state.lastVozidloPerDriver[state.driverId] = vozidlo;
     }
@@ -833,7 +812,7 @@ function renderJizdaModal() {
             <div class="form-row"><label>Datum *</label><input type="date" name="datum" value="${dnes}" required></div>
             <div class="form-row"><label>Řidič *</label>
               <select name="ridic" required>
-                ${state.ridici.map(r => { const s = r.jmeno.split(' ')[0]+' '+r.jmeno.split(' ')[1][0]+'.'; return `<option value="${s}" ${isDriver&&r.jmeno===state.driverName?'selected':''}>${r.jmeno}</option>`; }).join('')}
+                ${ridiciProVyber().map(r => { const s = kratkeJmenoRidice(r.jmeno); return `<option value="${s}" ${isDriver?'selected':''}>${r.jmeno}</option>`; }).join('')}
                 ${state.ridici.length===0?'<option>Nejprve přidej řidiče</option>':''}
               </select>
             </div>
@@ -869,7 +848,7 @@ window.deleteJizda = function(id) { if(!confirm('Smazat jízdu?')) return; state
 function exportJizdyCSV() {
   const isOwner = state.role === 'owner';
   const mesic = document.getElementById('jizdyMesic')?.value || '';
-  let list = isOwner ? state.jizdy : state.jizdy.filter(j => j.ridic.startsWith((state.driverName||'').split(' ')[0]));
+  let list = mojeJizdy();
   if (mesic) list = list.filter(j => j.datum.startsWith(mesic));
   const rows = [['Datum','Řidič','Vozidlo','Odkud','Kam','km','Poznámka'], ...list.map(j=>[j.datum,j.ridic,j.vozidlo,j.trasaOd,j.trasaDo,j.km,j.poznamka||''])];
   const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
@@ -911,7 +890,7 @@ function renderTankRows(list) {
       <td>${formatDate(t.datum)}</td><td>${t.vozidlo}</td><td>${t.ridic}</td><td>${t.misto}</td>
       <td style="text-align:right">${t.litry} l</td>
       <td style="text-align:right"><b>${(+t.cenaCelkem).toLocaleString('cs-CZ')} Kč</b></td>
-      <td>${t.uctenka ? `<img src="${t.uctenka}" class="receipt-thumb" onclick="showReceipt('${t.uctenka}')" alt="Účtenka">` : '<span style="color:var(--dim);font-size:12px;">—</span>'}</td>
+      <td>${t.uctenka ? `<img src="${hAttr(t.uctenka)}" class="receipt-thumb" onclick="showReceipt(this.src)" alt="Účtenka">` : '<span style="color:var(--dim);font-size:12px;">—</span>'}</td>
       <td style="display:flex;gap:6px;">
         <button class="btn btn-ghost btn-sm" onclick="editTank(${t.id})">Upravit</button>
         <button class="btn btn-danger btn-sm" onclick="deleteTank(${t.id})">Smazat</button>
@@ -943,7 +922,7 @@ function renderTankModal(t={}) {
         <h2>${t.id?'Upravit tankování':'Nové tankování'}</h2><p class="modal-sub">${t.id?'Uprav údaje o tankování.':'Zápis o tankování — klidně vyfoť účtenku.'}</p>
         <form id="tankForm">
           <input type="hidden" name="editId" value="${t.id||''}">
-          <input type="hidden" name="uctenkaData" id="uctenkaDataField" value="${t.uctenka||''}">
+          <input type="hidden" name="uctenkaData" id="uctenkaDataField" value="${hAttr(t.uctenka)}">
           <div class="form-cols-2">
             <div class="form-row"><label>Datum *</label><input type="date" name="datum" value="${t.datum||dnes}" required></div>
             <div class="form-row"><label>Místo *</label><input type="text" name="misto" required value="${t.misto||''}" placeholder="např. OMV Praha"></div>
@@ -961,9 +940,9 @@ function renderTankModal(t={}) {
             </div>
             <div class="form-row"><label>Řidič *</label>
               <select name="ridic" required>
-                ${state.ridici.map(r => {
-                  const s = r.jmeno.split(' ')[0]+' '+r.jmeno.split(' ')[1][0]+'.';
-                  const selected = t.ridic ? t.ridic === s : (isDriver && r.id===state.driverId);
+                ${ridiciProVyber().map(r => {
+                  const s = kratkeJmenoRidice(r.jmeno);
+                  const selected = t.ridic ? t.ridic === s : isDriver;
                   return `<option ${selected?'selected':''}>${s}</option>`;
                 }).join('')}
               </select>
@@ -977,7 +956,7 @@ function renderTankModal(t={}) {
             <label>📷 Fotka účtenky (nepovinné)</label>
             <input type="file" name="uctenkaFile" id="uctenkaInput" accept="image/*" capture="environment">
             <div id="uctenkaPreviewWrap" style="${t.uctenka?'':'display:none;'} margin-top:10px;">
-              <img id="uctenkaPreview" src="${t.uctenka||''}" style="max-width:160px; border-radius:8px; border:1px solid var(--border-c);">
+              <img id="uctenkaPreview" src="${hAttr(t.uctenka)}" style="max-width:160px; border-radius:8px; border:1px solid var(--border-c);">
               <button type="button" class="btn btn-ghost btn-sm" id="btnRemoveUctenka" style="margin-left:10px;">Odebrat fotku</button>
             </div>
             <span style="font-size:11.5px; color:var(--dim); margin-top:4px; display:block;">Fotka se zmenší, aby zbytečně nezabírala místo. Slouží jako doklad k záznamu.</span>
@@ -1018,7 +997,7 @@ function wireTankModal() {
     const vozidlo = fd.get('vozidlo');
     const editId = fd.get('editId');
     const data = {
-      datum: fd.get('datum'), vozidlo, ridic: fd.get('ridic'),
+      datum: fd.get('datum'), vozidlo, ridic: fd.get('ridic'), driverId: idRidiceZVyberu(fd.get('ridic')),
       misto: fd.get('misto'), litry: +fd.get('litry'), cenaCelkem: +fd.get('cenaCelkem'),
       uctenka: fd.get('uctenkaData') || null
     };
@@ -1215,7 +1194,7 @@ function renderRidici() {
   return `
     <div class="page-head">
       <div><h1>👷 Řidiči</h1><p>Seznam řidičů, karty, průkazy a jejich výkon.</p></div>
-      <div class="page-actions"><button class="btn btn-primary" id="btnAddRidic">+ Nový řidič</button></div>
+      <div class="page-actions"><button class="btn btn-ghost" onclick="openPinDialog('owner','majitele')">🔑 PIN majitele</button><button class="btn btn-primary" id="btnAddRidic">+ Nový řidič</button></div>
     </div>
     <div class="table-wrap">
       <table class="data-table">
@@ -1409,9 +1388,10 @@ function renderRidicModal(r={}) {
             <span style="font-size:11.5px; color:var(--dim); margin-top:4px; display:block;">Povinné stahovat každých 28 dní.</span>
           </div>
           <div class="form-row">
-            <label>PIN pro přihlášení do appky (4 číslice) *</label>
-            <input type="text" name="pin" inputmode="numeric" maxlength="4" required value="${r.pin||''}" placeholder="např. 1234" style="letter-spacing:4px; font-weight:700;">
-            <span id="ridicPinError" style="display:none; color:var(--red); font-size:12px;">Tento PIN už používá jiný řidič — zvol jiný.</span>
+            <label>PIN pro přihlášení do appky (4 číslice) ${r.id?'':'*'}</label>
+            <input type="text" name="pin" inputmode="numeric" maxlength="4" ${r.id?'':'required'} value="" autocomplete="off" placeholder="${r.id?'nech prázdné = PIN se nemění':'např. 1234'}" style="letter-spacing:4px; font-weight:700;">
+            <span style="font-size:11.5px; color:var(--dim); margin-top:4px; display:block;">PIN se ukládá jen na serveru a nelze ho zpětně zobrazit — když ho řidič zapomene, nastav mu nový.</span>
+            <span id="ridicPinError" style="display:none; color:var(--red); font-size:12px;"></span>
           </div>
           <div class="modal-actions">
             <button type="button" class="btn btn-ghost" onclick="closeModal('ridicModal')">Zrušit</button>
@@ -1422,6 +1402,35 @@ function renderRidicModal(r={}) {
     </div>
   `;
 }
+// Okno pro nastavení PINu: target = 'owner' nebo id řidiče
+window.openPinDialog = function(target, komu) {
+  const stare = document.getElementById('pinDialog'); if (stare) stare.remove();
+  document.body.insertAdjacentHTML('beforeend', `
+    <div class="modal-overlay open" id="pinDialog"><div class="modal" style="max-width:380px;">
+      <h2>🔑 Nový PIN</h2><p class="modal-sub">Čtyřmístný PIN pro ${komu}.</p>
+      <div class="form-row"><input type="text" id="pinDialogInput" inputmode="numeric" maxlength="4" class="pin-input" autocomplete="off" placeholder="• • • •"></div>
+      <p id="pinDialogErr" style="display:none; color:var(--red); font-size:12.5px;"></p>
+      <div class="modal-actions"><button class="btn btn-ghost" id="pinDialogCancel">Zrušit</button><button class="btn btn-primary" id="pinDialogOk">Uložit PIN</button></div>
+    </div></div>`);
+  const input = document.getElementById('pinDialogInput'), err = document.getElementById('pinDialogErr');
+  input.focus();
+  input.addEventListener('input', () => { input.value = input.value.replace(/\D/g, '').slice(0, 4); });
+  document.getElementById('pinDialogCancel').addEventListener('click', () => document.getElementById('pinDialog').remove());
+  document.getElementById('pinDialogOk').addEventListener('click', async () => {
+    if (!/^\d{4}$/.test(input.value)) { err.textContent = 'PIN musí mít přesně 4 číslice.'; err.style.display = 'block'; return; }
+    try {
+      const odp = await api('/api/pin', { method: 'POST', body: { target: String(target), pin: input.value } });
+      if (odp.token) { const rel = nactiRelaci(); ulozRelaci({ ...rel, token: odp.token }); if (sync.me) sync.me.mustChangePin = false; }
+      document.getElementById('pinDialog').remove();
+      alert('PIN je nastavený.');
+      const aktivni = document.querySelector('.nav-item.active'); renderSection(aktivni ? aktivni.dataset.section : 'dashboard');
+    } catch (e) {
+      err.textContent = e.status === 409 ? 'Tento PIN už používá někdo jiný — zvol jiný.' : (e.message || 'PIN se nepodařilo uložit.');
+      err.style.display = 'block';
+    }
+  });
+};
+
 // Zkrácené jméno ("Jan Novák" -> "Jan N."), pod kterým se řidič ukládá do jízd a tankování
 function kratkeJmenoRidice(jmeno) {
   const casti = (jmeno || '').trim().split(' ');
@@ -1454,16 +1463,23 @@ function bindRidici() {
   const pinField = document.querySelector('#ridicForm [name="pin"]');
   if (pinField) pinField.addEventListener('input', (e) => { e.target.value = e.target.value.replace(/\D/g,'').slice(0,4); });
 
-  document.getElementById('ridicForm').addEventListener('submit', (e) => {
+  document.getElementById('ridicForm').addEventListener('submit', async (e) => {
     e.preventDefault(); const fd = new FormData(e.target);
     const editId = fd.get('editId');
-    const pin = fd.get('pin');
-    const pinTaken = state.ridici.some(r => r.pin === pin && r.id !== +editId);
-    if (pinTaken) {
-      document.getElementById('ridicPinError').style.display = 'block';
-      return;
+    const pin = (fd.get('pin') || '').trim();
+    const chyba = document.getElementById('ridicPinError');
+    chyba.style.display = 'none';
+    if (pin && !/^\d{4}$/.test(pin)) { chyba.textContent = 'PIN musí mít přesně 4 číslice.'; chyba.style.display = 'block'; return; }
+    const id = editId ? +editId : Date.now();
+    if (pin) {
+      // PIN se nastavuje přímo na serveru (ten hlídá, aby ho nemělo víc lidí); záznam řidiče PIN neobsahuje
+      try { await api('/api/pin', { method: 'POST', body: { target: String(id), pin } }); }
+      catch (err) {
+        chyba.textContent = err.status === 409 ? 'Tento PIN už používá někdo jiný — zvol jiný.' : (err.message || 'PIN se nepodařilo uložit.');
+        chyba.style.display = 'block'; return;
+      }
     }
-    const data = { jmeno: fd.get('jmeno'), telefon: fd.get('telefon'), skupina: fd.get('skupina'), kartaRidice: fd.get('kartaRidice'), profesniPrukaz: fd.get('profesniPrukaz'), posledniStazeniKarty: fd.get('posledniStazeniKarty') || null, pin };
+    const data = { jmeno: fd.get('jmeno'), telefon: fd.get('telefon'), skupina: fd.get('skupina'), kartaRidice: fd.get('kartaRidice'), profesniPrukaz: fd.get('profesniPrukaz'), posledniStazeniKarty: fd.get('posledniStazeniKarty') || null };
     if (editId) {
       const idx = state.ridici.findIndex(r=>r.id===+editId);
       if (idx>=0) {
@@ -1472,7 +1488,7 @@ function bindRidici() {
         prenesPrejmenovaniRidice(stareJmeno, data.jmeno);
       }
     } else {
-      state.ridici.push({ id: Date.now(), ...data });
+      state.ridici.push({ id, ...data });
     }
     saveState(); closeModal('ridicModal'); renderSection('ridici');
   });

@@ -1,0 +1,12 @@
+{
+  "name": "vondrasek-app",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Provozní systém Autodoprava Vondrášek — statická appka + serverové funkce (Vercel) nad Neon Postgres",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.0"
+  }
+}

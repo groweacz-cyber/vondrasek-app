@@ -38,6 +38,7 @@
           <div><strong>Řidič</strong><small>Zadej svůj PIN</small></div>
         </button>
       </div>
+      <p class="login-error" id="loginMessage" hidden></p>
     </div>
 
     <!-- Krok 2: PIN (majitel i řidič — nadpis a chybovou hlášku nastavuje app.js) -->
@@ -183,6 +184,7 @@
     <header class="topbar">
       <button class="menu-toggle" id="menuToggle" aria-label="Menu">☰</button>
       <div class="topbar-title" id="topbarTitle">Dashboard</div>
+      <span class="sync-status" id="syncStatus" role="status"></span>
     </header>
 
     <div class="content" id="content">
@@ -192,6 +194,7 @@
 
 </div>
 
+<script src="sync.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

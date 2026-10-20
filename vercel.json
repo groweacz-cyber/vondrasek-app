@@ -1,6 +1,7 @@
 {
   "cleanUrls": true,
   "trailingSlash": false,
+  "regions": ["fra1"],
   "headers": [
     {
       "source": "/sw.js",

@@ -1,44 +1,68 @@
 # Vondrášek — Provozní systém
 
 Interní provozní systém pro Autodoprava Vondrášek, s.r.o.
-Statický web (HTML/CSS/JS), data v localStorage. Nasazení přes Vercel.
+Statická appka (HTML/CSS/JS bez buildu) + serverové funkce na Vercelu + databáze Neon Postgres.
+Majitel vidí a spravuje **všechna** data, řidič vidí jen svoje jízdy a tankování.
 
 ## Struktura
 
 ```
-├── index.html      → app shell (login, sidebar, topbar)
-├── styles.css      → Growea design system (dark, purple/blue)
-├── app.js          → logika (router, evidence jízd, tankování, reporty)
-├── vercel.json     → konfigurace nasazení
-└── README.md
+├── index.html        → app shell (přihlášení, menu, horní lišta)
+├── styles.css        → Growea design system (dark, purple/blue)
+├── app.js            → obrazovky a logika (dashboard, jízdy, tankování, vozidla, řidiči, zakázky, malá doprava, reporty)
+├── sync.js           → přihlášení, pracovní kopie dat a synchronizace se serverem
+├── sw.js             → service worker (offline shell appky)
+├── api/              → serverové funkce (Vercel)
+│   ├── login.js      → POST přihlášení PINem
+│   ├── sync.js       → GET změny / POST uložení změn (s kontrolou oprávnění)
+│   ├── pin.js        → POST změna PINu (jen majitel)
+│   ├── receipt.js    → GET fotka účtenky
+│   ├── logout.js     → POST smaže cookie relace
+│   └── _lib/         → databáze, podepisování relací, oprávnění
+├── scripts/seed.js   → jednorázové naplnění databáze (13 řidičů tras PNS + PINy), nenasazuje se
+├── package.json      → jediná závislost: @neondatabase/serverless
+└── vercel.json       → konfigurace nasazení (region fra1)
 ```
 
-## Nasazení
+## Jak to funguje
 
-```bash
-git remote add origin https://github.com/<tvuj-ucet>/vondrasek-app.git
-git push -u origin main
-```
+- **Data jsou na serveru** (tabulka `vnd_records`: kolekce `jizdy`, `tankovani`, `vozidla`, `ridici`, `zakazky`,
+  `malaDoprava`, `pnsRouteConfig`). Prohlížeč má jen pracovní kopii.
+- **Synchronizace** (`sync.js`): každá změna se hned odešle, nové změny od ostatních se stahují každých 15 s
+  (a při návratu na kartu). Bez připojení se změny drží a odešlou po obnovení sítě. Při souběžné úpravě téhož
+  záznamu vyhrává poslední zápis.
+- **Role a oprávnění** (vynucuje server, ne jen menu):
+  - majitel čte i zapisuje všechno,
+  - řidič dostane jen své jízdy a tankování (bez financí), vozidla a jména kolegů; zapisuje jen své jízdy
+    a tankování. Malá doprava (PNS), zakázky, finance a řidiči (kontakty, karty) jsou jen pro majitele.
+- **PINy**: 4 číslice, na serveru jen jako HMAC otisk (`PIN_PEPPER`), nikdy v kódu ani v datech. Majitel je mění
+  v appce (Řidiči → PIN majitele / Upravit řidiče). Po změně PINu přestanou platit staré relace. Po 5 špatných
+  pokusech z jedné adresy se přihlášení na 5 min zamkne (pak 10, 20, … max. 60 min).
+- **Fotky účtenek** se ukládají na serveru zvlášť (`vnd_receipts`) a načítají přes `/api/receipt` (cookie relace).
 
-Pak na vercel.com → Add New → Project → vyber `vondrasek-app` → Framework: Other → Deploy.
+## Nastavení na Vercelu (jednorázově)
+
+1. **Databáze**: Neon přes Vercel Marketplace (`vercel integration add neon`) — doplní `DATABASE_URL` do projektu.
+2. **Proměnné prostředí** (Production): `SESSION_SECRET` (dlouhý náhodný text, min. 24 znaků) a `PIN_PEPPER`
+   (jiný dlouhý náhodný text). Po jejich změně se všichni musí znovu přihlásit, resp. přestanou platit PINy.
+3. **Naplnění databáze**: s `DATABASE_URL`, `SESSION_SECRET` a `PIN_PEPPER` v prostředí spusť
+   `OWNER_PIN=1234 node scripts/seed.js` (volitelně `OWNER_MUST_CHANGE=1` zapne v appce upozornění na změnu PINu).
+   Vypíše náhodné PINy řidičů tras PNS — zapiš si je, znovu se nezobrazí (pak je lze jen resetovat v appce).
+4. Další `git push` na `main` nasadí novou verzi automaticky.
 
 ## Subdoména
 
-Doporučená subdoména: `app.autodoprava-vondrasek.cz` (nebo jiná dle výběru).
-Nastavení ve Vercel Settings → Domains, DNS záznamy přidáš ve Forpsi.
+`app.autodoprava-vondrasek.eu` (CNAME ve Forpsi → Vercel).
 
 ## Stav
 
-- [x] Dashboard s metrikami
-- [x] Evidence jízd (CRUD + filtr + CSV export)
-- [x] Tankování (CRUD)
-- [x] Vozidla, Řidiči, Zakázky (přehled)
-- [x] Reporty (km/řidič, km/vozidlo, spotřeba)
-- [x] Podklady k fakturaci
-- [x] Přihlašování PINem — majitel (`OWNER_PIN`) a řidiči tras PNS (`RIDICI_TRAS`), obojí v `app.js`
-- [x] Ostrý provoz od 2026-10-20: systém startuje bez dat (klíč `vondrasek_app_v2`, zkušební data z v1 se nenačítají)
-- [ ] Přidávání vozidel/řidičů/zakázek
-- [ ] Napojení na databázi (Neon) + reálné přihlašování
+- [x] Dashboard s metrikami, evidence jízd, tankování (s fotkou účtenky), vozidla, řidiči, zakázky
+- [x] Malá doprava (PNS) — 13 tras, kalendář výjimek, ziskovost, export k fakturaci
+- [x] Reporty a podklady k fakturaci
+- [x] Ostrý provoz od 2026-10-20 — bez zkušebních dat
+- [x] Sdílená data na serveru: majitel vidí všechno, co zapíšou řidiči
+- [x] Přihlášení PINem ověřované serverem (majitel + řidiči), změna PINů v appce
+- [ ] Skutečné účty (e-mail + heslo) místo PINů, historie změn (audit)
 - [ ] Náborový chatbot (rule-based)
 - [ ] Fáze 2 sekce (správce poptávek, marketing)
 - [ ] Fáze 3 sekce (dispečink, kalkulace, WhatsApp, hlas)
