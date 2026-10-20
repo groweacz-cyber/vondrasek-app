@@ -72,6 +72,7 @@ Majitel vidí a spravuje **všechna** data, řidič vidí jen svoje jízdy a tan
 - [x] Přihlášení PINem ověřované serverem (majitel + řidiči), změna PINů v appce
 - [x] Řidič nahlásí objížďku z dashboardu — promítne se do Malé dopravy a majitel ji vidí
 - [x] Měsíční souhrn vícenákladů z objížděk po trasách + export k fakturaci platci
+- [x] Dashboard řidiče ukazuje jeho vlastní trasu PNS (nikdy trasy ostatních řidičů)
 - [ ] Skutečné účty (e-mail + heslo) místo PINů, historie změn (audit)
 - [ ] Náborový chatbot (rule-based)
 - [ ] Fáze 2 sekce (správce poptávek, marketing)

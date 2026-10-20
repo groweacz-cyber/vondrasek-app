@@ -298,6 +298,7 @@ const SECTIONS = {
 function renderDashboard() {
   const isOwner = state.role === 'owner';
   const myJizdy = mojeJizdy();
+  const mojeTrasy = (sync.me && sync.me.mojeTrasy) || [];   // jen řidičova vlastní trasa/trasy PNS, nikdy cizí (viz api/sync.js → zjistiMojeTrasy)
   const kmCelkem = myJizdy.reduce((s,j) => s + (+j.km||0), 0);
   const litryCelkem = state.tankovani.reduce((s,t) => s + (+t.litry||0), 0);
   const nakladyPHM = state.tankovani.reduce((s,t) => s + (+t.cenaCelkem||0), 0);
@@ -329,6 +330,9 @@ function renderDashboard() {
     <div class="metrics">
       <div class="metric"><div class="m-label">Najeté km</div><div class="m-value">${kmCelkem.toLocaleString('cs-CZ')}</div><div class="m-delta">▲ celkem</div></div>
       <div class="metric"><div class="m-label">Počet jízd</div><div class="m-value">${myJizdy.length}</div><div class="m-delta">▲ celkem</div></div>
+      ${!isOwner ? `
+      <div class="metric"><div class="m-label">${mojeTrasy.length > 1 ? 'Tvoje trasy' : 'Tvoje trasa'}</div><div class="m-value">${mojeTrasy.length ? mojeTrasy.join(', ') : '—'}</div><div class="m-delta neutral">${mojeTrasy.length ? 'Malá doprava (PNS)' : 'zatím nepřiřazena'}</div></div>
+      ` : ''}
       ${isOwner ? `
       <div class="metric"><div class="m-label">Vozidla</div><div class="m-value">${state.vozidla.length}</div><div class="m-delta neutral">v systému</div></div>
       <div class="metric"><div class="m-label">Řidiči</div><div class="m-value">${state.ridici.length}</div><div class="m-delta neutral">v systému</div></div>
