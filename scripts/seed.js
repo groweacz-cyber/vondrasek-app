@@ -1,13 +1,18 @@
-// Jednorázové naplnění databáze pro ostrý provoz: 13 řidičů tras PNS (+ jejich stálé trasy) a PINy.
+// Jednorázové naplnění databáze pro ostrý provoz: řidiči tras PNS (+ jejich stálé trasy) a PINy.
 // Spuštění (s proměnnými prostředí z Vercelu):  OWNER_PIN=1234 node scripts/seed.js
 // PINy řidičů se vygenerují náhodně a vypíšou se jen do konzole — v databázi jsou jen jako otisk.
 // Skript je bezpečné pustit znovu: existující řidiče a trasy nepřepisuje a PINy mění jen s PINY_ZNOVU=1.
 // OWNER_MUST_CHANGE=1 zapne v appce upozornění, že majitel má změnit výchozí PIN.
+//
+// DŮLEŽITÉ: id řidiče = pozice v TRASY + 1. Nové trasy se proto vždy PŘIDÁVAJÍ NA KONEC pole,
+// nikdy se nevkládají doprostřed — jinak by se v produkci přepočítala id už existujících řidičů
+// a seed by je napojil na jinou trasu, než mají ve skutečnosti (viz scripts/add-drivers-2026-10.js,
+// který 20013 a 20018 přidal ručně jako id 14/15 po tomhle vzoru).
 const crypto = require('crypto');
 const { db } = require('../api/_lib/db');
 const { otisk } = require('../api/_lib/auth');
 
-const TRASY = ['20001', '20004', '20011', '20016', '20041', '20042', '20043', '20044', '20045', '20058', '20063', '20064', '20066'];
+const TRASY = ['20001', '20004', '20011', '20016', '20041', '20042', '20043', '20044', '20045', '20058', '20063', '20064', '20066', '20013', '20018'];
 
 function nahodnyPin(pouzite, vyloucene) {
   for (;;) {

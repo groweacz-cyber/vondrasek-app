@@ -52,6 +52,9 @@ Majitel vidí a spravuje **všechna** data, řidič vidí jen svoje jízdy a tan
   otevřel). Každá stránka má vlastní ziskovost, filtr/měsíc a export CSV s financemi
   (`velka-doprava-cz-RRRR-MM.csv` / `-eu-`). Evidence jízd dál ukazuje obě kategorie pohromadě se štítkem CZ/EU
   u trasy. Obě stránky jsou jen pro majitele (stejně jako Malá doprava).
+- **Trasy PNS**: 15 (`20001, 20004, 20011, 20013, 20016, 20018, 20041–20045, 20058, 20063, 20064, 20066`),
+  každá se svým stálým řidičem a PINem — viz `scripts/add-drivers-2026-10.js` (jednorázová migrace
+  2026-10-21, kdy přibyly trasy 20013 a 20018 a stávajícím 13 řidičům reálná jména a telefony).
 
 ## Nastavení na Vercelu (jednorázově)
 

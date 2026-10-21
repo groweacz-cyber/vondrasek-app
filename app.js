@@ -9,7 +9,7 @@
 
 // Data žijí na serveru — pracovní kopie `state`, saveState() a přihlášení jsou v sync.js.
 // Tady zůstává jen seznam tras PNS a doplnění chybějící konfigurace trasy.
-const PNS_ROUTES = ['20001','20004','20011','20016','20041','20042','20043','20044','20045','20058','20063','20064','20066'];
+const PNS_ROUTES = ['20001','20004','20011','20013','20016','20018','20041','20042','20043','20044','20045','20058','20063','20064','20066'];
 
 // Zajistí, že konfigurace existuje pro všechny trasy (i nově přidané), a doplní chybějící pole.
 // Volá se u majitele po stažení dat ze serveru (nikdy dřív, ať se nepřepíše to, co na serveru už je).
@@ -115,7 +115,7 @@ function efektivniTrasaDen(route, iso) {
   };
 }
 
-// Spočítá příjem za daný jízdní den přes všech 13 tras (automaticky, podle konfigurace + výjimek)
+// Spočítá příjem za daný jízdní den přes všechny trasy PNS (automaticky, podle konfigurace + výjimek)
 function vypocetPrijemDne(iso) {
   let prijem = 0;
   PNS_ROUTES.forEach(route => {
@@ -140,7 +140,7 @@ function vypocetOdhadNakladuDne(iso) {
   return naklady;
 }
 
-// Spočítá celkové km za daný den (základ + objížďky) přes všech 13 tras
+// Spočítá celkové km za daný den (základ + objížďky) přes všechny trasy PNS
 function vypocetKmDne(iso) {
   let km = 0;
   PNS_ROUTES.forEach(route => {
