@@ -19,7 +19,7 @@ const STAVAJICI = [
   { id: '7',  trasa: '20043', jmeno: 'Miloš Valovič',     telefon: '+420 774 270 361' },
   { id: '8',  trasa: '20044', jmeno: 'Kateřina Veselá',   telefon: '+420 704 116 535' },
   { id: '9',  trasa: '20045', jmeno: 'Petr Vondrášek',    telefon: '+420 721 460 120' },
-  { id: '10', trasa: '20058', jmeno: 'Čepička Robert',    telefon: '+420 722 921 805' },
+  { id: '10', trasa: '20058', jmeno: 'Robert Čepička',    telefon: '+420 722 921 805' },
   { id: '11', trasa: '20063', jmeno: 'Pavel Sarauer',     telefon: '+420 724 921 945' },
   { id: '12', trasa: '20064', jmeno: 'Pavel Honing',      telefon: '+420 724 607 945' },
   { id: '13', trasa: '20066', jmeno: 'Václav Pitra',      telefon: '+420 722 900 226' }
