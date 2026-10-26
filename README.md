@@ -35,6 +35,11 @@ Majitel vidí a spravuje **všechna** data, řidič vidí jen svoje jízdy a tan
   - majitel čte i zapisuje všechno,
   - řidič dostane jen své jízdy a tankování (bez financí), vozidla a jména kolegů; zapisuje jen své jízdy
     a tankování. Malá doprava (PNS), zakázky, finance a řidiči (kontakty, karty) jsou jen pro majitele.
+  - **vedoucí dopravy** (role `dispecer`) je obyčejný řidič (má i svou vlastní trasu), kterému majitel na
+    stránce Řidiči zaškrtne „🧭 Vedoucí dopravy" — stejný PIN mu po přihlášení appka dá navíc práva zapisovat
+    jízdy, tankování a hlášení objížděk i ZA JINÉ řidiče (vybere řidiče v dropdownu) a vidět je všechny v
+    evidenci jízd/tankování i v dashboardových kartách „Malá doprava dnes" a „Hlášení objížděk" — ale stejně
+    jako řidič nikdy nevidí finance, ceny ani náklady, a nemá přístup do Malé dopravy, zakázek ani Řidičů.
 - **PINy**: 4 číslice, na serveru jen jako HMAC otisk (`PIN_PEPPER`), nikdy v kódu ani v datech. Majitel je mění
   v appce (Řidiči → PIN majitele / Upravit řidiče). Po změně PINu přestanou platit staré relace. Po 5 špatných
   pokusech z jedné adresy se přihlášení na 5 min zamkne (pak 10, 20, … max. 60 min).

@@ -23,13 +23,13 @@ function ensureRouteConfig() {
   });
 }
 
-// Jízdy přihlášeného: majitel všechny, řidič jen své (server mu stejně pošle jen jeho)
+// Jízdy přihlášeného: majitel i vedoucí dopravy všechny, řidič jen své (server mu stejně pošle jen jeho)
 function mojeJizdy() {
-  return state.role === 'owner' ? state.jizdy : state.jizdy.filter(j => String(j.driverId) === String(state.driverId));
+  return (state.role === 'owner' || state.role === 'dispecer') ? state.jizdy : state.jizdy.filter(j => String(j.driverId) === String(state.driverId));
 }
-// Řidiči k výběru ve formulářích: majitel všechny, řidič jen sám sebe
+// Řidiči k výběru ve formulářích: majitel i vedoucí dopravy všechny (zapisují i za jiné), řidič jen sám sebe
 function ridiciProVyber() {
-  return state.role === 'owner' ? state.ridici : state.ridici.filter(r => String(r.id) === String(state.driverId));
+  return (state.role === 'owner' || state.role === 'dispecer') ? state.ridici : state.ridici.filter(r => String(r.id) === String(state.driverId));
 }
 // ID řidiče podle zkráceného jména z výběru ("Jan N."); řidič zapisuje vždy sám za sebe
 function idRidiceZVyberu(kratke) {
@@ -220,9 +220,10 @@ function showApp() {
   document.getElementById('app').hidden = false;
   document.getElementById('content').setAttribute('data-tisk-datum', new Date().toLocaleDateString('cs-CZ'));
   const isOwner = state.role === 'owner';
-  document.getElementById('userIc').textContent = isOwner ? '👔' : '🚚';
+  const isDispecer = state.role === 'dispecer';
+  document.getElementById('userIc').textContent = isOwner ? '👔' : isDispecer ? '🧭' : '🚚';
   document.getElementById('userName').textContent = isOwner ? 'Majitel' : state.driverName;
-  document.getElementById('userRole').textContent = isOwner ? 'Plný přístup' : 'Vidí jen svoje';
+  document.getElementById('userRole').textContent = isOwner ? 'Plný přístup' : isDispecer ? 'Vedoucí dopravy' : 'Vidí jen svoje';
   applyDriverView(!isOwner);
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.section === 'dashboard'));
   renderSection('dashboard');
@@ -260,7 +261,7 @@ document.getElementById('menuToggle').addEventListener('click', () => {
 
 // ---------- ROUTER ----------
 function renderSection(name) {
-  if (state.role === 'driver' && !['dashboard', 'jizdy', 'tankovani'].includes(name)) name = 'dashboard';
+  if ((state.role === 'driver' || state.role === 'dispecer') && !['dashboard', 'jizdy', 'tankovani'].includes(name)) name = 'dashboard';
   const content = document.getElementById('content');
   document.getElementById('topbarTitle').textContent = SECTIONS[name]?.title || 'Dashboard';
   content.innerHTML = (SECTIONS[name] || SECTIONS.dashboard).render();
@@ -304,6 +305,7 @@ const SECTIONS = {
 // ==========================================================
 function renderDashboard() {
   const isOwner = state.role === 'owner';
+  const isDispecer = state.role === 'dispecer';
   const myJizdy = mojeJizdy();
   const mojeTrasy = (sync.me && sync.me.mojeTrasy) || [];   // jen řidičova vlastní trasa/trasy PNS, nikdy cizí (viz api/sync.js → zjistiMojeTrasy)
   const kmCelkem = myJizdy.reduce((s,j) => s + (+j.km||0), 0);
@@ -348,8 +350,8 @@ function renderDashboard() {
       <div class="metric"><div class="m-label">Náklady PHM</div><div class="m-value">${nakladyPHM.toLocaleString('cs-CZ')} Kč</div><div class="m-delta neutral">celkem</div></div>
     </div>
 
-    ${isOwner ? renderDnesekMalaDoprava() : ''}
-    ${isOwner ? renderHlaseniObjizdekOwnerCard() : renderHlaseniObjizdekDriverCard()}
+    ${isOwner || isDispecer ? renderDnesekMalaDoprava() : ''}
+    ${isOwner || isDispecer ? renderHlaseniObjizdekOwnerCard() : renderHlaseniObjizdekDriverCard()}
 
     <!-- GRAF -->
     <div class="card-panel" style="margin-bottom:20px;">
@@ -572,21 +574,30 @@ window.otevritHlaseniVMaleDoprave = function(id) {
 // vykresleného dashboardu), ať má vždy čerstvý seznam tras ze serveru (sync.me.mojeTrasy).
 window.openObjizdkaHlaseniModal = function() {
   const stare = document.getElementById('objizdkaHlaseniModal'); if (stare) stare.remove();
+  const jeDispecer = state.role === 'dispecer';
   const trasy = (sync.me && sync.me.mojeTrasy) || [];
   const dnes = toISO(new Date());
+  // Vedoucí dopravy může nahlásit objížďku i za jiného řidiče — pak si vybere trasu ze všech tras PNS,
+  // ne jen ze svých vlastních (appka stejně ověří na serveru, že se trasa s vybraným řidičem shoduje).
   document.body.insertAdjacentHTML('beforeend', `
     <div class="modal-overlay open" id="objizdkaHlaseniModal"><div class="modal">
       <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
         <h2 style="margin-bottom:2px;">🛣️ Nahlásit objížďku</h2>
         <button class="btn btn-ghost btn-sm" onclick="document.getElementById('objizdkaHlaseniModal').remove()">✕</button>
       </div>
-      <p class="modal-sub">Km navíc se po odeslání rovnou zapíšou majiteli do Malé dopravy u tvé trasy.</p>
-      ${trasy.length === 0 ? `
+      <p class="modal-sub">Km navíc se po odeslání rovnou zapíšou majiteli do Malé dopravy u dané trasy.</p>
+      ${!jeDispecer && trasy.length === 0 ? `
         <p style="font-size:13px; color:var(--amber);">Zatím ti nevidím žádnou přiřazenou trasu PNS — zkus to za chvíli znovu, nebo to řekni majiteli.</p>
         <div class="modal-actions"><button type="button" class="btn btn-ghost" onclick="document.getElementById('objizdkaHlaseniModal').remove()">Zavřít</button></div>
       ` : `
       <form id="objizdkaHlaseniForm">
-        ${trasy.length > 1 ? `
+        ${jeDispecer ? `
+        <div class="form-row"><label>Řidič *</label>
+          <select name="ridic" required>${ridiciProVyber().map(r => `<option value="${r.id}" ${String(r.id)===String(state.driverId)?'selected':''}>${r.jmeno}</option>`).join('')}</select>
+        </div>
+        <div class="form-row"><label>Trasa *</label>
+          <select name="trasa" required>${PNS_ROUTES.map(t => `<option value="${t}" ${trasy[0]===t?'selected':''}>${t}</option>`).join('')}</select>
+        </div>` : trasy.length > 1 ? `
         <div class="form-row"><label>Trasa *</label>
           <select name="trasa" required>${trasy.map(t => `<option value="${t}">${t}</option>`).join('')}</select>
         </div>` : `
@@ -610,8 +621,11 @@ window.openObjizdkaHlaseniModal = function() {
   if (form) form.addEventListener('submit', (e) => {
     e.preventDefault();
     const fd = new FormData(form);
+    const cilovyRidic = jeDispecer ? state.ridici.find(r => String(r.id) === String(fd.get('ridic'))) : null;
     state.hlaseniObjizdek.unshift({
-      id: Date.now(), driverId: state.driverId, driverName: state.driverName,
+      id: Date.now(),
+      driverId: cilovyRidic ? cilovyRidic.id : state.driverId,
+      driverName: cilovyRidic ? cilovyRidic.jmeno : state.driverName,
       trasa: fd.get('trasa'), datum: fd.get('datum'), km: +fd.get('km') || 0,
       poznamka: (fd.get('poznamka') || '').trim(), vytvoreno: new Date().toISOString(), stav: 'nove'
     });
@@ -753,7 +767,7 @@ function renderJizdy() {
   const list = mojeJizdy();
   return `
     <div class="page-head">
-      <div><h1>🛣️ Evidence jízd</h1><p>${isOwner ? 'Přehled všech jízd — filtruj, hledej, exportuj.' : 'Tvoje jízdy.'}</p></div>
+      <div><h1>🛣️ Evidence jízd</h1><p>${isOwner ? 'Přehled všech jízd — filtruj, hledej, exportuj.' : state.role === 'dispecer' ? 'Přehled jízd za všechny řidiče — bez financí.' : 'Tvoje jízdy.'}</p></div>
       <div class="page-actions"><button class="btn btn-primary" id="btnAddJizda">+ Nová jízda</button></div>
     </div>
     <div class="table-wrap">
@@ -1470,7 +1484,7 @@ function renderRidici() {
             const stats = ridicStats(r);
             return `
             <tr>
-              <td><b>${r.jmeno}</b></td>
+              <td><b>${r.jmeno}</b> ${r.vedouciDopravy ? '<span class="badge info" title="Vedoucí dopravy — zapisuje i za jiné řidiče, bez financí">🧭 vedoucí</span>' : ''}</td>
               <td><a href="tel:${r.telefon.replace(/\s/g,'')}" style="color:var(--cyan);">${r.telefon}</a></td>
               <td><span class="badge info">${r.skupina}</span></td>
               <td style="text-align:right">${stats.pocetJizd}</td>
@@ -1652,6 +1666,11 @@ function renderRidicModal(r={}) {
             <input type="date" name="posledniStazeniKarty" value="${r.posledniStazeniKarty||''}">
             <span style="font-size:11.5px; color:var(--dim); margin-top:4px; display:block;">Povinné stahovat každých 28 dní.</span>
           </div>
+          <div class="form-row" style="flex-direction:row; align-items:center; gap:10px;">
+            <input type="checkbox" name="vedouciDopravy" id="ridicVedouciDopravy" ${r.vedouciDopravy?'checked':''} style="width:18px; height:18px;">
+            <label for="ridicVedouciDopravy" style="margin:0;">🧭 Vedoucí dopravy</label>
+          </div>
+          <p style="font-size:11.5px; color:var(--dim); margin:-6px 0 14px;">Navíc k vlastní trase smí zapisovat jízdy, tankování a objížďky i za ostatní řidiče (bez přístupu k financím, cenám a nákladům).</p>
           <div class="form-row">
             <label>PIN pro přihlášení do appky (4 číslice) ${r.id?'':'*'}</label>
             <input type="text" name="pin" inputmode="numeric" maxlength="4" ${r.id?'':'required'} value="" autocomplete="off" placeholder="${r.id?'nech prázdné = PIN se nemění':'např. 1234'}" style="letter-spacing:4px; font-weight:700;">
@@ -1744,7 +1763,7 @@ function bindRidici() {
         chyba.style.display = 'block'; return;
       }
     }
-    const data = { jmeno: fd.get('jmeno'), telefon: fd.get('telefon'), skupina: fd.get('skupina'), kartaRidice: fd.get('kartaRidice'), profesniPrukaz: fd.get('profesniPrukaz'), posledniStazeniKarty: fd.get('posledniStazeniKarty') || null };
+    const data = { jmeno: fd.get('jmeno'), telefon: fd.get('telefon'), skupina: fd.get('skupina'), kartaRidice: fd.get('kartaRidice'), profesniPrukaz: fd.get('profesniPrukaz'), posledniStazeniKarty: fd.get('posledniStazeniKarty') || null, vedouciDopravy: fd.get('vedouciDopravy') === 'on' };
     if (editId) {
       const idx = state.ridici.findIndex(r=>r.id===+editId);
       if (idx>=0) {

@@ -2,7 +2,7 @@
 // POST /api/sync { ops: [{ coll, id, data, receipt? } | { coll, id, del: true }] } -> uloží změny
 const { db } = require('./_lib/db');
 const { vyzadujRelaci } = require('./_lib/auth');
-const { KOLEKCE, RIDIC_PISE, MAX_ZAZNAM, MAX_FOTKA, projekceProRidice, jeObjekt } = require('./_lib/data');
+const { KOLEKCE, RIDIC_PISE, MAX_ZAZNAM, MAX_FOTKA, projekceProRidice, projekceProDispecera, jeObjekt } = require('./_lib/data');
 
 const STRANKA = 3000;
 const ODDELOVAC = '\u0000';
@@ -21,6 +21,11 @@ async function ctiZmeny(req, res, q, rel) {
   const since = Math.max(0, parseInt(req.query && req.query.since, 10) || 0);
   const rows = rel.role === 'owner'
     ? await q('SELECT coll, id, data, deleted, seq FROM vnd_records WHERE seq > $1 ORDER BY seq LIMIT ' + STRANKA, [since])
+    : rel.role === 'dispecer'
+    // Vedoucí dopravy vidí jízdy/tankování/hlášení objížděk za VŠECHNY řidiče (bez financí), ne jen svoje.
+    ? await q(`SELECT coll, id, data, deleted, seq FROM vnd_records
+               WHERE seq > $1 AND coll IN ('vozidla', 'ridici', 'jizdy', 'tankovani', 'hlaseniObjizdek')
+               ORDER BY seq LIMIT ` + STRANKA, [since])
     : await q(`SELECT coll, id, data, deleted, seq FROM vnd_records
                WHERE seq > $1 AND (coll IN ('vozidla', 'ridici') OR (coll IN ('jizdy', 'tankovani', 'hlaseniObjizdek') AND data->>'driverId' = $2))
                ORDER BY seq LIMIT ` + STRANKA, [since, String(rel.driverId)]);
@@ -30,10 +35,10 @@ async function ctiZmeny(req, res, q, rel) {
   else { const m = await q('SELECT COALESCE(max(seq), 0) AS m FROM vnd_records', []); seq = Number(m[0].m); }
   const records = rows.map(r => ({
     coll: r.coll, id: r.id, deleted: r.deleted, seq: Number(r.seq),
-    data: rel.role === 'owner' ? r.data : projekceProRidice(r.coll, r.data)
+    data: rel.role === 'owner' ? r.data : rel.role === 'dispecer' ? projekceProDispecera(r.coll, r.data) : projekceProRidice(r.coll, r.data)
   }));
   const me = { role: rel.role, driverId: rel.driverId, mustChangePin: rel.mustChange };
-  if (rel.role === 'driver') me.mojeTrasy = await zjistiMojeTrasy(q, rel);
+  if (rel.role === 'driver' || rel.role === 'dispecer') me.mojeTrasy = await zjistiMojeTrasy(q, rel);
   return res.status(200).json({ seq, more: dalsi, records, me });
 }
 
@@ -48,7 +53,10 @@ async function aplikujHlaseniObjizdky(q, rel, data) {
   if (km <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(datum) || !trasa) {
     return 'Hlášení je uložené, ale chybí platné datum nebo km navíc — majitel ho musí do Malé dopravy zapsat ručně.';
   }
-  const ridRows = await q(`SELECT data->>'jmeno' AS jmeno FROM vnd_records WHERE coll = 'ridici' AND id = $1 AND deleted = false`, [String(rel.driverId)]);
+  // Komu hlášení patří — řidič hlásí za sebe, vedoucí dopravy (dispecer) může hlásit i za jiného řidiče,
+  // takže se trasa ověřuje podle CÍLOVÉHO řidiče (data.driverId), ne podle toho, kdo je přihlášený.
+  const cilovyDriverId = String(data.driverId || rel.driverId);
+  const ridRows = await q(`SELECT data->>'jmeno' AS jmeno FROM vnd_records WHERE coll = 'ridici' AND id = $1 AND deleted = false`, [cilovyDriverId]);
   const jmeno = ridRows[0] && ridRows[0].jmeno;
   const trasaRows = await q(`SELECT data FROM vnd_records WHERE coll = 'pnsRouteConfig' AND id = $1 AND deleted = false`, [trasa]);
   if (!jmeno || !trasaRows.length || trasaRows[0].data.stalyRidic !== jmeno) {
@@ -69,6 +77,7 @@ async function ulozZmeny(req, res, q, rel) {
   if (!Array.isArray(ops) || ops.length === 0) return res.status(400).json({ error: 'Chybí změny k uložení.' });
   if (ops.length > 60) return res.status(400).json({ error: 'Příliš mnoho změn najednou.' });
   const jeMajitel = rel.role === 'owner';
+  const jeDispecer = rel.role === 'dispecer'; // vedoucí dopravy — smí zapisovat jízdy/tankování/objížďky za KTERÉHOKOLI řidiče, ale bez financí
 
   // normalizace + základní kontrola
   const seznam = ops.map(o => ({
@@ -96,7 +105,7 @@ async function ulozZmeny(req, res, q, rel) {
 
     if (!jeMajitel) {
       if (!RIDIC_PISE.includes(o.coll)) { chyba('Tuhle část smí upravovat jen majitel.'); continue; }
-      if (staryData && String(staryData.driverId) !== String(rel.driverId)) { chyba('Cizí záznam.'); continue; }
+      if (!jeDispecer && staryData && String(staryData.driverId) !== String(rel.driverId)) { chyba('Cizí záznam.'); continue; }
     }
 
     try {
@@ -114,7 +123,7 @@ async function ulozZmeny(req, res, q, rel) {
 
       if (!jeObjekt(o.data)) { chyba('Neplatná data záznamu.'); continue; }
       const data = { ...o.data };
-      if (!jeMajitel && String(data.driverId) !== String(rel.driverId)) { chyba('Záznam musí patřit přihlášenému řidiči.'); continue; }
+      if (!jeMajitel && !jeDispecer && String(data.driverId) !== String(rel.driverId)) { chyba('Záznam musí patřit přihlášenému řidiči.'); continue; }
       if (o.coll === 'ridici') delete data.pin;                       // PINy se na serveru drží jen jako otisk
       if (o.coll === 'jizdy' && !jeMajitel) data.financni = staryData ? (staryData.financni || null) : null; // finance řidič nemění
       const nahrano = {};

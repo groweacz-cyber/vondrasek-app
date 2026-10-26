@@ -25,10 +25,16 @@ module.exports = async (req, res) => {
       if ((role === 'owner') !== jeMajitel) uzivatel = null; // PIN řidiče nesmí otevřít majitele a naopak
     }
     let ridic = null;
+    let skutecnaRole = role;
     if (uzivatel && role === 'driver') {
       const id = uzivatel.subject.slice('driver:'.length);
       const zaznam = await q(`SELECT data FROM vnd_records WHERE coll = 'ridici' AND id = $1 AND deleted = false`, [id]);
-      if (zaznam.length) ridic = { id, jmeno: zaznam[0].data.jmeno }; else uzivatel = null; // řidič už neexistuje
+      if (zaznam.length) {
+        ridic = { id, jmeno: zaznam[0].data.jmeno };
+        // "Vedoucí dopravy" je obyčejný řidič (má i svou vlastní trasu) s navíc zaškrtnutým příznakem
+        // u svého záznamu — stejný PIN, appka mu jen po přihlášení dá roli "dispecer" (viz Řidiči v appce).
+        if (zaznam[0].data.vedouciDopravy === true) skutecnaRole = 'dispecer';
+      } else uzivatel = null; // řidič už neexistuje
     }
     if (!uzivatel) {
       await zapisSelhani(q, klic);
@@ -36,10 +42,10 @@ module.exports = async (req, res) => {
     }
 
     await smazSelhani(q, klic);
-    const token = novyToken({ subject: uzivatel.subject, role, driverId: ridic ? ridic.id : null, ver: uzivatel.ver });
+    const token = novyToken({ subject: uzivatel.subject, role: skutecnaRole, driverId: ridic ? ridic.id : null, ver: uzivatel.ver });
     nastavCookie(req, res, token);
     return res.status(200).json({
-      token, role,
+      token, role: skutecnaRole,
       driverId: ridic ? (isNaN(+ridic.id) ? ridic.id : +ridic.id) : null,
       driverName: ridic ? ridic.jmeno : null,
       mustChangePin: !!uzivatel.must_change

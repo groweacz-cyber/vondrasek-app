@@ -12,6 +12,14 @@ function projekceProRidice(coll, data) {
   return data;
 }
 
+// Co dostane vedoucí dopravy (role "dispecer"): nikdy finance jízd, ale celé karty řidičů (jméno,
+// telefon, platnosti karet) — potřebuje kontaktovat řidiče a vědět o kartách, bez ceníků a nákladů.
+function projekceProDispecera(coll, data) {
+  if (!data) return data;
+  if (coll === 'jizdy') { const { financni, ...zbytek } = data; return zbytek; }
+  return data;
+}
+
 const jeObjekt = (x) => x && typeof x === 'object' && !Array.isArray(x);
 
-module.exports = { KOLEKCE, RIDIC_PISE, MAX_ZAZNAM, MAX_FOTKA, projekceProRidice, jeObjekt };
+module.exports = { KOLEKCE, RIDIC_PISE, MAX_ZAZNAM, MAX_FOTKA, projekceProRidice, projekceProDispecera, jeObjekt };
