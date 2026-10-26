@@ -329,6 +329,12 @@ function renderDashboard() {
       </div>
     </div>
 
+    ${isDispecer ? `
+    <div class="card-panel" style="margin-bottom:20px; border-color:var(--purple-light);">
+      <h3>🧭 Zadáváš data za řidiče</h3>
+      <p class="csub">Přes „+ Jízda", „+ Tankování" a „📣 Objížďka" (nahoře) i přes stránky Evidence jízd a Tankování zapisuješ záznam vždy za konkrétního řidiče — vyber ho v poli <b>Řidič</b> ve formuláři (nabízí všechny, ne jen tebe). Finance, ceny a náklady nevidíš ani nezadáváš — to zůstává jen pro majitele.</p>
+    </div>` : ''}
+
     ${isOwner && sync.me && sync.me.mustChangePin ? `
     <div class="card-panel" style="margin-bottom:20px; border-color:var(--amber);">
       <h3>⚠️ Změň si PIN majitele</h3>
@@ -973,6 +979,7 @@ window.openFinance = function(id) {
 function renderJizdaModal(vychoziTyp) {
   const dnes = new Date().toISOString().slice(0,10);
   const isDriver = state.role === 'driver';
+  const isDispecer = state.role === 'dispecer';
   const jeEu = vychoziTyp === 'eu';
   return `
     <div class="modal-overlay" id="jizdaModal">
@@ -983,9 +990,10 @@ function renderJizdaModal(vychoziTyp) {
             <div class="form-row"><label>Datum *</label><input type="date" name="datum" value="${dnes}" required></div>
             <div class="form-row"><label>Řidič *</label>
               <select name="ridic" required>
-                ${ridiciProVyber().map(r => { const s = kratkeJmenoRidice(r.jmeno); return `<option value="${s}" ${isDriver?'selected':''}>${r.jmeno}</option>`; }).join('')}
+                ${ridiciProVyber().map(r => { const s = kratkeJmenoRidice(r.jmeno); const vlastni = String(r.id)===String(state.driverId); return `<option value="${s}" ${isDriver||(isDispecer&&vlastni)?'selected':''}>${r.jmeno}</option>`; }).join('')}
                 ${state.ridici.length===0?'<option>Nejprve přidej řidiče</option>':''}
               </select>
+              ${isDispecer ? '<span style="font-size:11px; color:var(--purple-light); display:block; margin-top:4px;">Zapisuješ jako vedoucí dopravy — vyber řidiče, za kterého tento záznam je.</span>' : ''}
             </div>
           </div>
           <div class="form-row"><label>Typ dopravy *</label>
@@ -1195,6 +1203,7 @@ window.showReceipt = function(src) {
 function renderTankModal(t={}) {
   const dnes = new Date().toISOString().slice(0,10);
   const isDriver = state.role === 'driver';
+  const isDispecer = state.role === 'dispecer';
   return `
     <div class="modal-overlay" id="tankModal">
       <div class="modal">
@@ -1221,10 +1230,12 @@ function renderTankModal(t={}) {
               <select name="ridic" required>
                 ${ridiciProVyber().map(r => {
                   const s = kratkeJmenoRidice(r.jmeno);
-                  const selected = t.ridic ? t.ridic === s : isDriver;
+                  const vlastni = String(r.id)===String(state.driverId);
+                  const selected = t.ridic ? t.ridic === s : (isDriver || (isDispecer && vlastni));
                   return `<option ${selected?'selected':''}>${s}</option>`;
                 }).join('')}
               </select>
+              ${isDispecer ? '<span style="font-size:11px; color:var(--purple-light); display:block; margin-top:4px;">Zapisuješ jako vedoucí dopravy — vyber řidiče, za kterého tento záznam je.</span>' : ''}
             </div>
           </div>
           <div class="form-cols-2">
