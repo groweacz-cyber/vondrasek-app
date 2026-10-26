@@ -326,6 +326,10 @@ function renderDashboard() {
         <button class="btn btn-ghost btn-sm" id="btnDashAddJizda">+ Jízda</button>
         <button class="btn btn-ghost btn-sm" id="btnDashAddTank">+ Tankování</button>
         ${!isOwner ? `<button class="btn btn-ghost btn-sm" id="btnDashAddObjizdka">📣 Objížďka</button>` : ''}
+        ${isDispecer ? `
+        <button class="btn btn-primary btn-sm" id="btnDashAddJizdaZaRidice">🚚 Jízda za řidiče</button>
+        <button class="btn btn-primary btn-sm" id="btnDashAddTankZaRidice">⛽ Tankování za řidiče</button>
+        ` : ''}
       </div>
     </div>
 
@@ -642,6 +646,22 @@ window.openObjizdkaHlaseniModal = function() {
   });
 };
 
+// Dvě dedikovaná tlačítka na dashboardu vedoucí dopravy — na rozdíl od "+ Jízda"/"+ Tankování"
+// (vlastní záznam, předvyplněný jí) tahle schválně NEpředvyplní řidiče, ať je jasné, že se zapisuje
+// za NĚKOHO JINÉHO z tras, které jako vedoucí dopravy dozoruje.
+window.openJizdaZaRidiceModal = function() {
+  document.querySelector('.nav-item[data-section="jizdy"]').click();
+  document.getElementById('content').querySelector('.modal-overlay#jizdaModal').outerHTML = renderJizdaModal(undefined, true);
+  bindJizdaForm('jizdy');
+  openModal('jizdaModal');
+};
+window.openTankovaniZaRidiceModal = function() {
+  document.querySelector('.nav-item[data-section="tankovani"]').click();
+  document.getElementById('content').querySelector('.modal-overlay#tankModal').outerHTML = renderTankModal({}, true);
+  wireTankModal();
+  openModal('tankModal');
+};
+
 // Volá sync.js, když přibude hlášení objížďky od řidiče — pošle majiteli upozornění
 // (jen na tomhle zařízení a jen když má povolená oznámení; viz sync.initialLoadDone).
 function oznamNoveHlaseniObjizdek(noveZaznamy) {
@@ -667,6 +687,8 @@ function bindDashboard() {
     openModal('tankModal');
   });
   document.getElementById('btnDashAddObjizdka')?.addEventListener('click', openObjizdkaHlaseniModal);
+  document.getElementById('btnDashAddJizdaZaRidice')?.addEventListener('click', openJizdaZaRidiceModal);
+  document.getElementById('btnDashAddTankZaRidice')?.addEventListener('click', openTankovaniZaRidiceModal);
 
   // Zálohu dat vidí jen majitel (řidiči mají na dashboardu jen svoje)
   if (state.role !== 'owner') return;
@@ -976,7 +998,7 @@ window.openFinance = function(id) {
   openModal('financeModal');
 };
 
-function renderJizdaModal(vychoziTyp) {
+function renderJizdaModal(vychoziTyp, zaJineho = false) {
   const dnes = new Date().toISOString().slice(0,10);
   const isDriver = state.role === 'driver';
   const isDispecer = state.role === 'dispecer';
@@ -984,16 +1006,18 @@ function renderJizdaModal(vychoziTyp) {
   return `
     <div class="modal-overlay" id="jizdaModal">
       <div class="modal">
-        <h2>Nová jízda</h2><p class="modal-sub">Vyplň údaje o jízdě.</p>
+        <h2>${zaJineho ? '🚚 Jízda za řidiče' : 'Nová jízda'}</h2>
+        <p class="modal-sub">${zaJineho ? 'Zapisuješ za JINÉHO řidiče, kterého jako vedoucí dopravy dozoruješ — ne za svou vlastní trasu.' : 'Vyplň údaje o jízdě.'}</p>
         <form id="jizdaForm">
           <div class="form-cols-2">
             <div class="form-row"><label>Datum *</label><input type="date" name="datum" value="${dnes}" required></div>
             <div class="form-row"><label>Řidič *</label>
               <select name="ridic" required>
-                ${ridiciProVyber().map(r => { const s = kratkeJmenoRidice(r.jmeno); const vlastni = String(r.id)===String(state.driverId); return `<option value="${s}" ${isDriver||(isDispecer&&vlastni)?'selected':''}>${r.jmeno}</option>`; }).join('')}
+                ${zaJineho ? '<option value="" disabled selected>— vyber řidiče —</option>' : ''}
+                ${ridiciProVyber().map(r => { const s = kratkeJmenoRidice(r.jmeno); const vlastni = String(r.id)===String(state.driverId); return `<option value="${s}" ${!zaJineho&&(isDriver||(isDispecer&&vlastni))?'selected':''}>${r.jmeno}</option>`; }).join('')}
                 ${state.ridici.length===0?'<option>Nejprve přidej řidiče</option>':''}
               </select>
-              ${isDispecer ? '<span style="font-size:11px; color:var(--purple-light); display:block; margin-top:4px;">Zapisuješ jako vedoucí dopravy — vyber řidiče, za kterého tento záznam je.</span>' : ''}
+              ${isDispecer && !zaJineho ? '<span style="font-size:11px; color:var(--purple-light); display:block; margin-top:4px;">Tohle je tvůj vlastní záznam. Za jiného řidiče použij tlačítko „Jízda za řidiče" na dashboardu.</span>' : ''}
             </div>
           </div>
           <div class="form-row"><label>Typ dopravy *</label>
@@ -1200,14 +1224,15 @@ window.showReceipt = function(src) {
   openModal('receiptLightbox');
 };
 
-function renderTankModal(t={}) {
+function renderTankModal(t={}, zaJineho = false) {
   const dnes = new Date().toISOString().slice(0,10);
   const isDriver = state.role === 'driver';
   const isDispecer = state.role === 'dispecer';
   return `
     <div class="modal-overlay" id="tankModal">
       <div class="modal">
-        <h2>${t.id?'Upravit tankování':'Nové tankování'}</h2><p class="modal-sub">${t.id?'Uprav údaje o tankování.':'Zápis o tankování — klidně vyfoť účtenku.'}</p>
+        <h2>${zaJineho ? '⛽ Tankování za řidiče' : (t.id?'Upravit tankování':'Nové tankování')}</h2>
+        <p class="modal-sub">${zaJineho ? 'Zapisuješ za JINÉHO řidiče, kterého jako vedoucí dopravy dozoruješ — ne za svou vlastní trasu.' : (t.id?'Uprav údaje o tankování.':'Zápis o tankování — klidně vyfoť účtenku.')}</p>
         <form id="tankForm">
           <input type="hidden" name="editId" value="${t.id||''}">
           <input type="hidden" name="uctenkaData" id="uctenkaDataField" value="${hAttr(t.uctenka)}">
@@ -1228,14 +1253,15 @@ function renderTankModal(t={}) {
             </div>
             <div class="form-row"><label>Řidič *</label>
               <select name="ridic" required>
+                ${zaJineho ? '<option value="" disabled selected>— vyber řidiče —</option>' : ''}
                 ${ridiciProVyber().map(r => {
                   const s = kratkeJmenoRidice(r.jmeno);
                   const vlastni = String(r.id)===String(state.driverId);
-                  const selected = t.ridic ? t.ridic === s : (isDriver || (isDispecer && vlastni));
-                  return `<option ${selected?'selected':''}>${s}</option>`;
+                  const selected = t.ridic ? t.ridic === s : (!zaJineho && (isDriver || (isDispecer && vlastni)));
+                  return `<option value="${s}" ${selected?'selected':''}>${s}</option>`;
                 }).join('')}
               </select>
-              ${isDispecer ? '<span style="font-size:11px; color:var(--purple-light); display:block; margin-top:4px;">Zapisuješ jako vedoucí dopravy — vyber řidiče, za kterého tento záznam je.</span>' : ''}
+              ${isDispecer && !zaJineho ? '<span style="font-size:11px; color:var(--purple-light); display:block; margin-top:4px;">Tohle je tvůj vlastní záznam. Za jiného řidiče použij tlačítko „Tankování za řidiče" na dashboardu.</span>' : ''}
             </div>
           </div>
           <div class="form-cols-2">
