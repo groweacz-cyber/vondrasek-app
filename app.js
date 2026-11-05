@@ -2023,6 +2023,8 @@ function renderMalaDoprava() {
       </div>
     </div>
 
+    ${renderEonKarta(year, month, monthNames)}
+
     <div class="card-panel" style="margin-bottom:20px;">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
         <div>
@@ -2096,6 +2098,73 @@ function renderMalaDoprava() {
     ${renderTrasaDetailModal()}
     ${renderHromadnaObjizdkaModal()}
   `;
+}
+
+// Trasa 20001+ (Eon) — paušální, bez cen a řidiče: jen se zaškrtává, který den jela.
+// Ukládá se do pnsRouteConfig pod klíčem 'eon' ({ dny: { 'RRRR-MM-DD': true } }), mimo seznam PNS_ROUTES,
+// takže se nepočítá do ziskovosti ani do exportů PNS tras.
+function eonDny() {
+  const rec = state.pnsRouteConfig.eon;
+  return (rec && rec.dny) || {};
+}
+function eonPocetDnuMesice(year, month) {
+  const pref = `${year}-${String(month + 1).padStart(2, '0')}-`;
+  return Object.keys(eonDny()).filter(k => k.startsWith(pref)).length;
+}
+function renderEonKarta(year, month, monthNames) {
+  const dow = ['Po','Út','St','Čt','Pá','So','Ne'];
+  const dny = eonDny();
+  const startOffset = (new Date(year, month, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  let cells = '';
+  for (let i = 0; i < startOffset; i++) cells += `<div class="cal-cell muted"></div>`;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const iso = toISO(new Date(year, month, d));
+    const jela = !!dny[iso];
+    const vypnuto = !isDrivingDay(iso);
+    cells += `<label class="cal-cell" style="min-height:56px; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; ${jela ? 'border-color:var(--green); background:rgba(16,185,129,0.12);' : ''} ${vypnuto ? 'opacity:0.6;' : ''}" title="${holidayName(iso) || (vypnuto ? 'Neděle' : '')}">
+      <span class="cal-daynum" style="${vypnuto ? 'color:var(--dim);' : ''}">${d}</span>
+      <input type="checkbox" class="eon-den" data-iso="${iso}" ${jela ? 'checked' : ''} style="width:18px; height:18px;">
+    </label>`;
+  }
+  return `
+    <div class="card-panel" style="margin-bottom:20px;" id="eonKarta">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:6px;">
+        <div>
+          <h3 style="margin-bottom:4px;">🚐 Trasa 20001+ (Eon) — paušál</h3>
+          <p class="csub" style="margin-bottom:0;">Zaškrtni dny, kdy trasa jela. Nic jiného se nezadává.</p>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button class="btn btn-ghost btn-sm" id="btnEonPred">←</button>
+          <b>${monthNames[month]} ${year}</b>
+          <button class="btn btn-ghost btn-sm" id="btnEonDal">→</button>
+        </div>
+      </div>
+      <div class="cal-grid" id="eonKalendar">
+        ${dow.map(x => `<div class="cal-dow">${x}</div>`).join('')}
+        ${cells}
+      </div>
+      <p style="margin:12px 0 0; font-size:13px;">Jela <b id="eonPocet">${eonPocetDnuMesice(year, month)}</b> dní v měsíci ${monthNames[month].toLowerCase()}.</p>
+    </div>
+  `;
+}
+function bindEon() {
+  const kal = document.getElementById('eonKalendar');
+  if (!kal) return;
+  document.getElementById('btnEonPred').addEventListener('click', () => { malaDopravaMonthOffset--; renderSection('mala-doprava'); });
+  document.getElementById('btnEonDal').addEventListener('click', () => { malaDopravaMonthOffset++; renderSection('mala-doprava'); });
+  kal.addEventListener('change', (e) => {
+    const cb = e.target.closest('.eon-den'); if (!cb) return;
+    const rec = state.pnsRouteConfig.eon || (state.pnsRouteConfig.eon = { dny: {} });
+    if (!rec.dny) rec.dny = {};
+    if (cb.checked) rec.dny[cb.dataset.iso] = true; else delete rec.dny[cb.dataset.iso];
+    const lab = cb.closest('label');
+    lab.style.borderColor = cb.checked ? 'var(--green)' : '';
+    lab.style.background = cb.checked ? 'rgba(16,185,129,0.12)' : '';
+    const { year, month } = malaDopravaAktualniMesic();
+    document.getElementById('eonPocet').textContent = eonPocetDnuMesice(year, month);
+    saveState();
+  });
 }
 
 function renderMalaDopravaCalendar(year, month) {
@@ -2633,6 +2702,7 @@ function bindMalaDoprava() {
   document.getElementById('btnExportMalaVyjimky').addEventListener('click', exportMalaDopravaVyjimkyCSV);
   document.getElementById('btnExportVicenaklady').addEventListener('click', exportVicenakladyObjizdekCSV);
   bindHromadnaObjizdka();
+  bindEon();
 }
 
 // Aktuálně zobrazený měsíc v kalendáři malé dopravy (rok, měsíc 0-11, počet dní)
