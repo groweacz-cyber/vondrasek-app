@@ -619,3 +619,25 @@ table.data-table {
   }
 }
 
+
+
+/* AI asistentka (jen majitel) */
+.asist-btn { position: fixed; right: 18px; bottom: 18px; z-index: 90; background: linear-gradient(135deg, var(--purple), var(--blue)); color: #fff; border: none; border-radius: 999px; padding: 11px 18px; font-weight: 700; font-size: 14px; cursor: pointer; box-shadow: 0 10px 30px rgba(0,0,0,0.45); }
+.asist-panel { position: fixed; right: 18px; bottom: 72px; z-index: 91; width: min(380px, calc(100vw - 24px)); height: min(540px, calc(100vh - 100px)); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--border-c); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.55); overflow: hidden; }
+.asist-panel[hidden] { display: none; }
+.asist-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border-c); font-size: 14px; }
+.asist-head span { color: var(--muted); font-size: 12px; flex: 1; }
+.asist-head button { background: none; border: none; color: var(--muted); font-size: 16px; cursor: pointer; }
+.asist-log { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.asist-msg { max-width: 88%; padding: 8px 12px; border-radius: 12px; font-size: 13px; line-height: 1.5; word-wrap: break-word; }
+.asist-msg.bot { background: var(--card); align-self: flex-start; }
+.asist-msg.user { background: var(--purple); color: #fff; align-self: flex-end; }
+.asist-msg.ceka { color: var(--muted); font-style: italic; }
+.asist-msg.chyba { color: var(--red); }
+.asist-navrhy { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 10px; }
+.asist-navrhy[hidden] { display: none; }
+.asist-navrhy button { background: var(--card); border: 1px solid var(--border-c); color: var(--white); border-radius: 999px; padding: 5px 11px; font-size: 12px; cursor: pointer; }
+.asist-form { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border-c); }
+.asist-form input { flex: 1; min-width: 0; }
+.asist-form button { background: var(--purple); color: #fff; border: none; border-radius: 10px; padding: 0 14px; font-weight: 600; cursor: pointer; }
+@media print { .asist-btn, .asist-panel { display: none !important; } }

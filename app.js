@@ -237,6 +237,7 @@ function showApp() {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.section === 'dashboard'));
   renderSection('dashboard');
   inicializujZvonek();
+  inicializujAsistentku();
   posliNotifikaceProUpozorneni();
   nastavStav(sync.stav);
   zacniSynchronizaci();
@@ -777,6 +778,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 24, datum: '2026-11-12', text: 'AI asistentka (💬 vpravo dole): radí se systémem a ví, co kde je a jak se co počítá. Zapne se po vložení klíče GROQ_API_KEY do Vercelu.' },
   { id: 23, datum: '2026-11-12', text: 'Kompletní přehled: místo upozornění na PIN je Hlídač termínů. Přibyl měsíční termín Zaslání faktury PNS a.s. (jízdy a Eon svozy) s extra poznámkou k listopadu.' },
   { id: 22, datum: '2026-11-12', text: 'Výkaz trasy 20001+ k tisku / PDF je podklad pro plátce: cena 250 Kč za den, celkem k úhradě, bez jména řidiče.' },
   { id: 21, datum: '2026-11-12', text: 'Export objížděk i jako přehledný PDF výkaz (souhrn po trasách a seznam objížděk za měsíc).' },
@@ -828,6 +830,54 @@ function inicializujZvonek() {
     dot.hidden = true;   // označeno za přečtené; zvýrazněné řádky v otevřeném okně zůstanou, dokud ho nezavřeš
   });
   document.addEventListener('click', (e) => { if (!panel.hidden && !wrap.contains(e.target)) { panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); } });
+}
+
+// ==========================================================
+// AI ASISTENTKA — chat vpravo dole (jen majitel); radí se systémem, odpovídá server (api/asistentka.js)
+// ==========================================================
+const ASISTENTKA_NAVRHY = ['Jak přidám nového řidiče?', 'Jak se počítají jízdní dny PNS?', 'Jak vystavím výkaz za Eon?', 'Kde najdu ziskovost vozidel?'];
+let asistentkaZpravy = [];
+function asistentkaHtml(text) {
+  return String(text).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
+}
+function inicializujAsistentku() {
+  const stare = document.getElementById('asistentkaWrap');
+  if (state.role !== 'owner') { if (stare) stare.remove(); return; }
+  if (stare) return;
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="asistentkaWrap">
+      <button class="asist-btn" id="asistentkaBtn" aria-label="Asistentka">💬 Asistentka</button>
+      <div class="asist-panel" id="asistentkaPanel" hidden>
+        <div class="asist-head"><b>💬 Asistentka</b><span>poradí se systémem</span><button id="asistentkaZavrit" aria-label="Zavřít">✕</button></div>
+        <div class="asist-log" id="asistentkaLog"></div>
+        <div class="asist-navrhy" id="asistentkaNavrhy">${ASISTENTKA_NAVRHY.map(n => `<button type="button">${n}</button>`).join('')}</div>
+        <form class="asist-form" id="asistentkaForm"><input type="text" id="asistentkaInput" placeholder="Zeptej se na cokoli kolem systému…" autocomplete="off" maxlength="500"><button type="submit">Poslat</button></form>
+      </div>
+    </div>`);
+  const panel = document.getElementById('asistentkaPanel'), log = document.getElementById('asistentkaLog'), input = document.getElementById('asistentkaInput');
+  const pridej = (role, text) => { const d = document.createElement('div'); d.className = 'asist-msg ' + role; d.innerHTML = asistentkaHtml(text); log.appendChild(d); log.scrollTop = log.scrollHeight; return d; };
+  pridej('bot', 'Ahoj Jardo, jsem asistentka systému. Zeptej se, kde co najdeš nebo jak něco udělat. Čísla ani data ze systému nevidím.');
+  const posli = async (dotaz) => {
+    dotaz = dotaz.trim(); if (!dotaz) return;
+    document.getElementById('asistentkaNavrhy').hidden = true;
+    pridej('user', dotaz); input.value = '';
+    asistentkaZpravy.push({ role: 'user', content: dotaz });
+    const ceka = pridej('bot', 'Přemýšlím…'); ceka.classList.add('ceka');
+    try {
+      const odp = await api('/api/asistentka', { method: 'POST', body: { messages: asistentkaZpravy, novinky: UPDATES.slice(0, 25).map(u => formatDate(u.datum) + ': ' + u.text) } });
+      ceka.classList.remove('ceka'); ceka.innerHTML = asistentkaHtml(odp.reply);
+      asistentkaZpravy.push({ role: 'assistant', content: odp.reply });
+    } catch (e) {
+      ceka.classList.remove('ceka'); ceka.classList.add('chyba'); ceka.textContent = e.message || 'Asistentka se teď nemůže ozvat.';
+      asistentkaZpravy.pop();
+    }
+    log.scrollTop = log.scrollHeight;
+  };
+  document.getElementById('asistentkaBtn').addEventListener('click', () => { panel.hidden = !panel.hidden; if (!panel.hidden) input.focus(); });
+  document.getElementById('asistentkaZavrit').addEventListener('click', () => { panel.hidden = true; });
+  document.getElementById('asistentkaForm').addEventListener('submit', (e) => { e.preventDefault(); posli(input.value); });
+  document.getElementById('asistentkaNavrhy').addEventListener('click', (e) => { if (e.target.tagName === 'BUTTON') posli(e.target.textContent); });
 }
 
 // ==========================================================
