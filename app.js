@@ -363,7 +363,7 @@ function renderDashboard() {
 
     <div class="metrics">
       <div class="metric"><div class="m-label">Najeté km</div><div class="m-value">${kmCelkem.toLocaleString('cs-CZ')}</div><div class="m-delta">▲ celkem</div></div>
-      <div class="metric"><div class="m-label">Počet jízd</div><div class="m-value">${myJizdy.length}</div><div class="m-delta">▲ celkem</div></div>
+      ${renderTileJizd()}
       ${!isOwner ? `
       <div class="metric"><div class="m-label">${mojeTrasy.length + (eonRidic ? 1 : 0) > 1 ? 'Tvoje trasy' : 'Tvoje trasa'}</div><div class="m-value">${mojeTrasy.length || eonRidic ? mojeTrasy.concat(eonRidic ? ['20001+ (Eon)'] : []).join(', ') : '—'}</div><div class="m-delta neutral">${mojeTrasy.length || eonRidic ? 'Malá doprava' : 'zatím nepřiřazena'}</div></div>
       ` : ''}
@@ -496,9 +496,8 @@ function pnsDnyMesice(k, fid) {
   return trasy.length ? { dny: dny.length, jizdy: dny.length * trasy.length } : { dny: 0, jizdy: 0 };
 }
 
-function jizdyMesiceRadky() {
-  const f = window._jizdyMesiceRidic;
-  const fid = f && f !== 'vse' ? f : null;
+// Mapa 'RRRR-MM' -> { cz, eu, km, eon } pro viditelné jízdy (a dny Eonu), volitelně jen jeden řidič
+function jizdyMesiceMapa(fid) {
   let list = mojeJizdy();
   if (fid) list = list.filter(j => String(j.driverId) === fid);
   const map = {};
@@ -520,6 +519,13 @@ function jizdyMesiceRadky() {
       if (n && /^\d{4}-\d{2}$/.test(k)) mesic(k).eon = n;
     });
   }
+  return map;
+}
+
+function jizdyMesiceRadky() {
+  const f = window._jizdyMesiceRidic;
+  const fid = f && f !== 'vse' ? f : null;
+  const map = jizdyMesiceMapa(fid);
   const now = new Date();
   const aktualni = toISO(now).slice(0, 7);
   const prvni = [Object.keys(map).sort()[0] || aktualni, PROVOZ_OD.slice(0, 7)].sort()[0];
@@ -532,8 +538,8 @@ function jizdyMesiceRadky() {
     const m = map[k] || { cz: 0, eu: 0, km: 0, eon: 0 };
     const p = pnsDnyMesice(k, fid);
     const pns = !p ? '<span style="color:var(--dim);" title="Trasy a výjimky vidí jen majitel">—</span>'
-      : !p.dny ? '<span style="color:var(--dim);">—</span>'
-      : `<b title="${p.jizdy} jízd tras">${p.dny}</b> dní${p.jizdy !== p.dny ? ` <span style="color:var(--muted); font-size:11.5px;">(${p.jizdy} jízd tras)</span>` : ''}`;
+      : !p.jizdy ? '<span style="color:var(--dim);">—</span>'
+      : `<b>${p.jizdy}</b> jízd <span style="color:var(--muted); font-size:11.5px;">(${p.dny} dní)</span>`;
     html += `<tr><td>${mesice[d.getMonth()]} ${d.getFullYear()}${k === aktualni ? ' <span style="color:var(--muted); font-size:11px;">(do dneška)</span>' : ''}</td>
       <td style="text-align:right">${bunka(m.cz)}</td><td style="text-align:right">${bunka(m.eu)}</td>
       <td style="text-align:right">${pns}</td><td style="text-align:right">${m.eon ? `<b>${m.eon}</b> dní` : '<span style="color:var(--dim);">—</span>'}</td>
@@ -549,7 +555,7 @@ function renderJizdyPoMesicich(vidiVsechny) {
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
         <div>
           <h3 style="margin-bottom:4px;">📅 Počet jízd po měsících</h3>
-          <p class="csub" style="margin-bottom:0;">Velká doprava z Evidence jízd; malá doprava PNS a Eon jako odjeté dny do dneška${vidiVsechny ? '' : ' (tvoje)'}.</p>
+          <p class="csub" style="margin-bottom:0;">Velká doprava z Evidence jízd; malá doprava PNS (jízdy tras a odjeté dny) a Eon (dny) do dneška${vidiVsechny ? '' : ' — tvoje'}.</p>
         </div>
         ${vidiVsechny ? `<select id="jizdyMesiceRidic" style="max-width:240px;">
           <option value="vse">Všichni řidiči</option>
@@ -569,6 +575,66 @@ function bindJizdyMesice() {
     window._jizdyMesiceRidic = e.target.value;
     document.getElementById('jizdyMesiceBody').innerHTML = jizdyMesiceRadky();
   });
+}
+
+// Čtyři dlaždice nahoře na dashboardu: počet jízd tento měsíc (a celkem) podle druhu dopravy
+function renderTileJizd() {
+  const aktualni = toISO(new Date()).slice(0, 7);
+  const mapa = jizdyMesiceMapa(null);
+  const celkem = (k) => Object.values(mapa).reduce((s, m) => s + m[k], 0);
+  const cur = mapa[aktualni] || { cz: 0, eu: 0, eon: 0 };
+  const dlazdice = (nazev, hodnota, delta) => `<div class="metric"><div class="m-label">${nazev}</div><div class="m-value">${hodnota}</div><div class="m-delta neutral">${delta}</div></div>`;
+  let html = dlazdice('🚚 Velká doprava vnitro (ČR)', cur.cz, `tento měsíc · celkem ${celkem('cz')}`)
+    + dlazdice('🌍 Velká doprava mimo ČR', cur.eu, `tento měsíc · celkem ${celkem('eu')}`);
+  // PNS: jízdy tras (a odjeté dny) od spuštění provozu
+  const pnsAkt = pnsDnyMesice(aktualni, null);
+  if (pnsAkt) {
+    let celkemPns = 0;
+    for (let d = new Date(+PROVOZ_OD.slice(0, 4), +PROVOZ_OD.slice(5, 7) - 1, 1), konec = new Date(); d <= konec; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+      const p = pnsDnyMesice(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, null);
+      celkemPns += p ? p.jizdy : 0;
+    }
+    html += dlazdice('📰 Malá doprava PNS', pnsAkt.jizdy, `${pnsAkt.dny} dní tento měsíc · celkem ${celkemPns} jízd`);
+  }
+  if (state.role === 'owner' || (sync.me && sync.me.eonRidic)) html += dlazdice('🚐 Trasa Eon', cur.eon, `dní tento měsíc · celkem ${celkem('eon')}`);
+  return html;
+}
+
+// Řádky "jízd" malé dopravy PNS a Eonu pro Evidenci jízd (nejsou v kolekci jízd, skládají se z tras a kalendáře Eonu)
+function jizdyVirtualni(typ, mesicFiltr) {
+  const dnes = toISO(new Date());
+  const rows = [];
+  if (typ === 'eon') {
+    const ridic = state.role === 'owner' ? (eonRidiciJmena().join(', ') || '—') : state.driverName;
+    Object.entries(state.eonDny || {}).forEach(([k, rec]) => {
+      if (mesicFiltr && k !== mesicFiltr) return;
+      Object.keys((rec && rec.dny) || {}).forEach(iso => rows.push({ datum: iso, ridic, vozidlo: '—', trasa: 'Eon 20001+', km: '', pozn: state.role === 'owner' ? `paušál: příjem ${EON_PRIJEM_ZA_DEN} Kč, výplata ${EON_KC_ZA_DEN} Kč` : `paušál ${EON_KC_ZA_DEN} Kč` }));
+    });
+  } else {
+    const mesic = mesicFiltr || dnes.slice(0, 7);   // bez filtru měsíce se ukáže aktuální měsíc (řádků je hodně)
+    const dny = prehledJizdniDny(mesic).filter(iso => iso <= dnes && iso >= PROVOZ_OD);
+    const vozidloRidice = (id) => { const v = state.vozidla.find(x => id != null && String(x.ridicId) === String(id)); return v ? v.spz : '—'; };
+    if (state.role === 'owner') {
+      dny.forEach(iso => PNS_ROUTES.forEach(route => {
+        const eff = efektivniTrasaDen(route, iso), cfg = state.pnsRouteConfig[route] || {};
+        if (eff.nejelo) return;
+        const r = state.ridici.find(x => x.jmeno === eff.ridic);
+        const pozn = [eff.objizdkaKm ? `objížďka +${eff.objizdkaKm} km` : '', eff.ridic && cfg.stalyRidic && eff.ridic !== cfg.stalyRidic ? `zástup za ${cfg.stalyRidic}` : ''].filter(Boolean).join(', ');
+        rows.push({ datum: iso, ridic: eff.ridic || '— bez řidiče', vozidlo: vozidloRidice(r && r.id), trasa: 'PNS ' + route, km: (+cfg.kmZaDen || 0) + eff.objizdkaKm || '', pozn });
+      }));
+    } else if (state.role === 'driver') {
+      const trasy = (sync.me && sync.me.mojeTrasy) || [];
+      dny.forEach(iso => trasy.forEach(route => rows.push({ datum: iso, ridic: state.driverName, vozidlo: vozidloRidice(state.driverId), trasa: 'PNS ' + route, km: '', pozn: 'podle plánu trasy' })));
+    }
+  }
+  return rows.sort((a, b) => b.datum.localeCompare(a.datum) || a.trasa.localeCompare(b.trasa));
+}
+function renderVirtualniRadky(rows, isOwner, typ) {
+  if (!rows.length) {
+    const info = typ === 'mala' && state.role === 'dispecer' ? 'Trasy malé dopravy vidí jen majitel a řidič své.' : typ === 'eon' ? 'Žádné zaškrtnuté dny Eonu.' : 'Žádné jízdy malé dopravy v tomto měsíci.';
+    return `<tr><td colspan="${isOwner ? 8 : 6}"><div class="empty-state"><div class="empty-ic">📰</div>${info}</div></td></tr>`;
+  }
+  return rows.slice(0, 800).map(r => `<tr><td>${formatDate(r.datum)}</td><td>${r.ridic}</td><td>${r.vozidlo}</td><td>${r.trasa}</td><td style="text-align:right">${r.km === '' ? '—' : r.km}</td><td style="color:var(--muted);font-size:12.5px;">${r.pozn || '—'}</td>${isOwner ? '<td style="text-align:right">—</td><td></td>' : ''}</tr>`).join('');
 }
 
 // ==========================================================
@@ -716,7 +782,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
-  { id: 19, datum: '2026-11-12', text: 'Dashboard a Evidence jízd: počet jízd po měsících rozdělený na velkou dopravu vnitro (ČR), mimo ČR, malou dopravu PNS (odjeté dny) a Eon; v Evidenci jízd filtr druhu dopravy.' },
+  { id: 19, datum: '2026-11-12', text: 'Dashboard a Evidence jízd: počet jízd po měsících (dlaždice nahoře i tabulka) rozdělený na velkou dopravu vnitro (ČR), mimo ČR, malou dopravu PNS (odjeté dny) a Eon; v Evidenci jízd filtr druhu dopravy včetně malé dopravy a Eonu.' },
   { id: 18, datum: '2026-11-12', text: 'Malá doprava: počty odjetých dní se počítají do dneška (listopad: odjeto X z 25), plán měsíce zůstává vedle.' },
   { id: 17, datum: '2026-11-12', text: 'Business karta zkompaktněna a doplněna o sloupcové grafy (podle částí provozu a posledních 6 měsíců).' },
   { id: 16, datum: '2026-11-12', text: 'Dashboard: Business karta — cashflow, náklady a ziskovost za kalendářní měsíc průběžně (velká doprava, PNS, Eon, fixní náklady).' },
@@ -1463,6 +1529,8 @@ function renderJizdy() {
           <option value="">Všechny druhy dopravy</option>
           <option value="cz">🚚 Velká doprava vnitro (ČR)</option>
           <option value="eu">🌍 Velká doprava mimo ČR</option>
+          <option value="mala">📰 Malá doprava PNS</option>
+          <option value="eon">🚐 Eon</option>
         </select>
         <select id="jizdyMesic">
           <option value="">Všechny měsíce</option>
@@ -1519,10 +1587,16 @@ function bindJizdy() {
   function applyFilter() {
     const q = (document.getElementById('jizdyFilter').value||'').toLowerCase();
     const m = document.getElementById('jizdyMesic').value;
+    const typ = document.getElementById('jizdyTyp').value;
+    if (typ === 'mala' || typ === 'eon') {
+      let v = jizdyVirtualni(typ, m);
+      if (q) v = v.filter(r => `${r.ridic} ${r.trasa} ${r.vozidlo} ${r.pozn}`.toLowerCase().includes(q));
+      document.getElementById('jizdyBody').innerHTML = renderVirtualniRadky(v, isOwner, typ);
+      return;
+    }
     let list = mojeJizdy();
     if (q) list = list.filter(j => `${j.ridic} ${j.trasaOd} ${j.trasaDo} ${j.vozidlo} ${j.poznamka||''}`.toLowerCase().includes(q));
     if (m) list = list.filter(j => j.datum.startsWith(m));
-    const typ = document.getElementById('jizdyTyp').value;
     if (typ) list = list.filter(j => (j.typ || 'cz') === typ);
     document.getElementById('jizdyBody').innerHTML = renderJizdyRows(list, isOwner);
   }
