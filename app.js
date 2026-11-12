@@ -782,6 +782,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 21, datum: '2026-11-12', text: 'Export objížděk i jako přehledný PDF výkaz (souhrn po trasách a seznam objížděk za měsíc).' },
   { id: 20, datum: '2026-11-12', text: 'Dashboard přejmenován na Kompletní přehled. Malá doprava: tlačítko Export objížděk (výběr měsíce, jen trasy PNS). Z tisku a exportů je pryč vše mimo samotná data.' },
   { id: 19, datum: '2026-11-12', text: 'Dashboard a Evidence jízd: počet jízd po měsících (dlaždice nahoře i tabulka) rozdělený na velkou dopravu vnitro (ČR), mimo ČR, malou dopravu PNS (odjeté dny) a Eon; v Evidenci jízd filtr druhu dopravy včetně malé dopravy a Eonu.' },
   { id: 18, datum: '2026-11-12', text: 'Malá doprava: počty odjetých dní se počítají do dneška (listopad: odjeto X z 25), plán měsíce zůstává vedle.' },
@@ -3722,6 +3723,79 @@ function exportObjizdkyCSV(mesic) {
   const csv = rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n');
   downloadFile('objizdky-' + mesic + '.csv', 'text/csv;charset=utf-8;', '\ufeff' + csv);
 }
+// Tiskový výkaz objížděk (PDF přes tiskový dialog prohlížeče): souhrn po trasách + podrobný seznam
+function objizdkyTiskHtml(mesic) {
+  const esc = (x) => String(x == null ? '' : x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const kc = (n) => Math.round(n).toLocaleString('cs-CZ') + ' Kč';
+  const mesiceNazvy = ['Leden','Únor','Březen','Duben','Květen','Červen','Červenec','Srpen','Září','Říjen','Listopad','Prosinec'];
+  const dnyTydne = ['ne', 'po', 'út', 'st', 'čt', 'pá', 'so'];
+  const [y, m] = mesic.split('-').map(Number);
+  const data = objizdkyMesicRadky(mesic);
+  const sumKm = data.reduce((a, r) => a + r.km, 0), sumKc = data.reduce((a, r) => a + r.vicenaklad, 0);
+  const poTrasach = {};
+  data.forEach(r => { const t = poTrasach[r.route] || (poTrasach[r.route] = { route: r.route, stalyRidic: r.stalyRidic, dny: 0, km: 0, kc: 0, cenaKm: r.cenaKm }); t.dny++; t.km += r.km; t.kc += r.vicenaklad; });
+  const souhrn = Object.values(poTrasach).sort((a, b) => a.route.localeCompare(b.route));
+  const radky = data.map(r => {
+    const d = new Date(r.iso + 'T00:00:00');
+    return `<tr><td>${formatDate(r.iso)}</td><td>${dnyTydne[d.getDay()]}</td><td><b>${esc(r.route)}</b></td><td>${esc(r.ridic)}</td><td class="c">+${r.km} km</td><td class="c">${r.cenaKm === 'paušál' ? 'paušál' : kc(r.vicenaklad)}</td><td>${esc(r.poznamka)}</td></tr>`;
+  }).join('');
+  return `<!doctype html><html lang="cs"><head><meta charset="utf-8"><title>Objížďky ${mesiceNazvy[m - 1]} ${y}</title>
+<style>
+  @page { size: A4 landscape; margin: 14mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, Helvetica, sans-serif; color: #1b2233; font-size: 11.5px; margin: 0; }
+  .top { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #1f3a6e; padding-bottom: 10px; margin-bottom: 16px; }
+  .brand { font-size: 12px; font-weight: 700; color: #1f3a6e; letter-spacing: .3px; }
+  h1 { font-size: 23px; margin: 4px 0 0; color: #111a2e; }
+  .mes { font-size: 17px; font-weight: 700; color: #1f3a6e; text-align: right; }
+  .mes small { display: block; font-size: 10.5px; font-weight: 400; color: #667; }
+  .boxy { display: flex; gap: 12px; margin-bottom: 18px; }
+  .box { flex: 1; border: 1px solid #d5dbe8; border-radius: 8px; padding: 10px 14px; background: #f5f7fc; }
+  .box b { display: block; font-size: 20px; color: #1f3a6e; margin-top: 2px; }
+  .box span { font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: #667; }
+  h2 { font-size: 13px; margin: 16px 0 6px; color: #1f3a6e; text-transform: uppercase; letter-spacing: .6px; }
+  table { border-collapse: collapse; width: 100%; }
+  thead { display: table-header-group; }
+  th { background: #1f3a6e; color: #fff; text-align: left; font-weight: 600; font-size: 10.5px; padding: 6px 9px; }
+  td { padding: 5px 9px; border-bottom: 1px solid #e3e7f0; vertical-align: top; }
+  tr { page-break-inside: avoid; }
+  tbody tr:nth-child(even) td { background: #f8f9fc; }
+  .c { text-align: right; white-space: nowrap; }
+  th.c { text-align: right; }
+  tr.suma td { font-weight: 700; border-top: 2px solid #1f3a6e; background: #eef2fb !important; }
+  .prazdno { padding: 26px; text-align: center; color: #667; border: 1px dashed #c5cde0; border-radius: 8px; }
+  .pata { margin-top: 16px; font-size: 10px; color: #778; display: flex; justify-content: space-between; }
+</style></head><body>
+<div class="top">
+  <div><div class="brand">AUTODOPRAVA VONDRÁŠEK, S.R.O.</div><h1>Objížďky tras malé dopravy</h1></div>
+  <div class="mes">${mesiceNazvy[m - 1]} ${y}<small>trasy PNS</small></div>
+</div>
+<div class="boxy">
+  <div class="box"><span>Počet objížděk</span><b>${data.length}</b></div>
+  <div class="box"><span>Km navíc celkem</span><b>${sumKm.toLocaleString('cs-CZ')} km</b></div>
+  <div class="box"><span>Vícenáklad k fakturaci</span><b>${kc(sumKc)}</b></div>
+</div>
+${data.length ? `
+<h2>Souhrn po trasách</h2>
+<table><thead><tr><th>Trasa</th><th>Stálý řidič</th><th class="c">Dní s objížďkou</th><th class="c">Km navíc</th><th class="c">Cena za km</th><th class="c">Vícenáklad</th></tr></thead><tbody>
+${souhrn.map(t => `<tr><td><b>${esc(t.route)}</b></td><td>${esc(t.stalyRidic) || '—'}</td><td class="c">${t.dny}</td><td class="c">${t.km.toLocaleString('cs-CZ')} km</td><td class="c">${t.cenaKm === 'paušál' ? 'paušál' : t.cenaKm.toLocaleString('cs-CZ', { maximumFractionDigits: 2 }) + ' Kč'}</td><td class="c">${t.cenaKm === 'paušál' ? '—' : kc(t.kc)}</td></tr>`).join('')}
+<tr class="suma"><td>CELKEM</td><td></td><td class="c">${data.length}</td><td class="c">${sumKm.toLocaleString('cs-CZ')} km</td><td></td><td class="c">${kc(sumKc)}</td></tr>
+</tbody></table>
+<h2>Přehled objížděk</h2>
+<table><thead><tr><th>Datum</th><th>Den</th><th>Trasa</th><th>Jel řidič</th><th class="c">Km navíc</th><th class="c">Vícenáklad</th><th>Poznámka</th></tr></thead><tbody>${radky}</tbody></table>
+` : '<div class="prazdno">V tomto měsíci nejsou na trasách malé dopravy žádné objížďky.</div>'}
+<div class="pata"><span>Vícenáklad = km navíc × cena za km dané trasy; u paušálních tras se nepočítá.</span><span>Vytvořeno ${new Date().toLocaleDateString('cs-CZ')}</span></div>
+</body></html>`;
+}
+window.tiskObjizdky = function(mesic) {
+  const fr = document.createElement('iframe');
+  fr.style.cssText = 'position:fixed; right:0; bottom:0; width:0; height:0; border:0;';
+  document.body.appendChild(fr);
+  const d = fr.contentWindow.document;
+  d.open(); d.write(objizdkyTiskHtml(mesic)); d.close();
+  setTimeout(() => { fr.contentWindow.focus(); fr.contentWindow.print(); setTimeout(() => fr.remove(), 2000); }, 300);
+};
+
 window.openExportObjizdekModal = function() {
   const stare = document.getElementById('exportObjizdekModal'); if (stare) stare.remove();
   const { year, month } = malaDopravaAktualniMesic();
@@ -3731,14 +3805,16 @@ window.openExportObjizdekModal = function() {
   document.body.insertAdjacentHTML('beforeend', `
     <div class="modal-overlay open" id="exportObjizdekModal"><div class="modal" style="max-width:420px;">
       <h2>📥 Export objížděk</h2>
-      <p class="modal-sub">Objížďky tras malé dopravy PNS za zvolený měsíc do tabulky (CSV).</p>
+      <p class="modal-sub">Objížďky tras malé dopravy PNS za zvolený měsíc — jako tabulka (CSV) nebo přehledný PDF výkaz.</p>
       <div class="form-row"><label>Měsíc</label>
         <select id="exportObjizdekMesic">${mesice.map(m => `<option value="${m.value}" ${m.value === vychozi ? 'selected' : ''}>${m.label}</option>`).join('')}</select>
       </div>
       <p id="exportObjizdekInfo" style="font-size:12.5px; color:var(--muted);"></p>
+      <p style="font-size:11.5px; color:var(--dim);">PDF: v okně tisku zvol „Uložit jako PDF".</p>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" onclick="document.getElementById('exportObjizdekModal').remove()">Zavřít</button>
-        <button type="button" class="btn btn-primary" id="btnExportObjizdekStahnout">Stáhnout CSV</button>
+        <button type="button" class="btn btn-ghost" id="btnExportObjizdekCsv">Stáhnout CSV</button>
+        <button type="button" class="btn btn-primary" id="btnExportObjizdekPdf">📄 PDF výkaz</button>
       </div>
     </div></div>`);
   const sel = document.getElementById('exportObjizdekMesic'), info = document.getElementById('exportObjizdekInfo');
@@ -3747,7 +3823,8 @@ window.openExportObjizdekModal = function() {
     info.textContent = d.length ? `V tomto měsíci: ${d.length} objížděk, ${d.reduce((a, r) => a + r.km, 0).toLocaleString('cs-CZ')} km navíc.` : 'V tomto měsíci nejsou žádné objížďky.';
   };
   sel.addEventListener('change', popis); popis();
-  document.getElementById('btnExportObjizdekStahnout').addEventListener('click', () => { exportObjizdkyCSV(sel.value); document.getElementById('exportObjizdekModal').remove(); });
+  document.getElementById('btnExportObjizdekCsv').addEventListener('click', () => { exportObjizdkyCSV(sel.value); document.getElementById('exportObjizdekModal').remove(); });
+  document.getElementById('btnExportObjizdekPdf').addEventListener('click', () => { const mesic = sel.value; document.getElementById('exportObjizdekModal').remove(); tiskObjizdky(mesic); });
 };
 
 function exportVicenakladyObjizdekCSV() {
