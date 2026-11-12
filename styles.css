@@ -588,6 +588,7 @@ table.data-table {
    VŠUDE staví přes var(--x), takže tím zbělá i inline styly
 ========================================================= */
 @media print {
+  #eonKarta { display: none !important; }
   :root {
     --bg: #fff; --bg-darker: #fff; --panel: #fff; --card: #fff; --card-hover: #fff;
     --border-c: #ccc;
