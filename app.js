@@ -922,9 +922,7 @@ function asistentkaMluvPrehlizec(text, video) {
   });
 }
 function asistentkaPozdrav() {
-  const h = new Date().getHours();
-  const cas = h < 9 ? 'Dobré ráno' : h < 12 ? 'Dobré dopoledne' : h < 18 ? 'Dobré odpoledne' : 'Dobrý večer';
-  return `${cas}, Jardo! Jsem vaše asistentka systému. Zeptejte se mě, kde co najdete nebo jak se něco dělá. Čísla ze systému ale nevidím.`;
+  return 'Ahoj, Jardo! Jsem Tvoje asistentka systému. Zeptej se mě, kde co najdeš nebo jak se co dělá. Ráda Ti pomohu se vším!';
 }
 
 function inicializujAsistentku() {
@@ -941,7 +939,7 @@ function inicializujAsistentku() {
             <button id="asistentkaZavrit" aria-label="Zavřít">✕</button></div></div>
         <div class="asist-log" id="asistentkaLog"></div>
         <div class="asist-navrhy" id="asistentkaNavrhy">${ASISTENTKA_NAVRHY.map(n => `<button type="button">${n}</button>`).join('')}</div>
-        <form class="asist-form" id="asistentkaForm"><input type="text" id="asistentkaInput" placeholder="Zeptejte se na cokoli kolem systému…" autocomplete="off" maxlength="500"><button type="submit">Poslat</button></form>
+        <form class="asist-form" id="asistentkaForm"><input type="text" id="asistentkaInput" placeholder="Zeptej se na cokoli kolem systému…" autocomplete="off" maxlength="500"><button type="submit">Poslat</button></form>
       </div>
     </div>`);
   const panel = document.getElementById('asistentkaPanel'), log = document.getElementById('asistentkaLog'), input = document.getElementById('asistentkaInput');
