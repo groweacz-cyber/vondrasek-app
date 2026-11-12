@@ -676,6 +676,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 17, datum: '2026-11-12', text: 'Business karta zkompaktněna a doplněna o sloupcové grafy (podle částí provozu a posledních 6 měsíců).' },
   { id: 16, datum: '2026-11-12', text: 'Dashboard: Business karta — cashflow, náklady a ziskovost za kalendářní měsíc průběžně (velká doprava, PNS, Eon, fixní náklady).' },
   { id: 15, datum: '2026-11-12', text: 'Přibyla vozidla (dodávky pro malou dopravu, DAF LF a přípojný vlek pro velkou); u vozidla jde nastavit dopravu a řidiče.' },
   { id: 14, datum: '2026-11-12', text: 'Opraveny jízdní dny: PNS se jede vše kromě soboty a dne před svátkem (svátek se jede), Eon jen po–pá bez svátků. Eon: příjem 250 Kč/den.' },
@@ -922,6 +923,49 @@ function businessData(mesic, doDneska) {
   return { radky, prijmy, naklady, zisk: prijmy - naklady, orez, bezFinanci, trasBezCeny, phmLitry: tank.reduce((s, t) => s + (+t.litry || 0), 0), phmKc: tank.reduce((s, t) => s + (+t.cenaCelkem || 0), 0) };
 }
 
+// Sloupcový graf v SVG: kategorie na ose X, víc sérií vedle sebe, osa Y s "hezkými" hodnotami, základna u nuly (záporné sloupce jdou dolů)
+function svgSloupce({ kategorie, serie, w = 360, h = 190 }) {
+  const lev = 38, pra = 8, hor = 22, dol = 22;
+  const vsechny = serie.flatMap(s => s.hodnoty);
+  let max = Math.max(0, ...vsechny), min = Math.min(0, ...vsechny);
+  if (max === 0 && min === 0) max = 1;
+  const krok = (() => { const hrub = (max - min) / 4, p = Math.pow(10, Math.floor(Math.log10(hrub))), n = hrub / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p; })();
+  const horni = Math.ceil(max / krok) * krok, spodni = Math.floor(min / krok) * krok;
+  const rozsah = horni - spodni || 1;
+  const y = (v) => hor + (horni - v) / rozsah * (h - hor - dol);
+  const fmt = (v) => Math.abs(v) >= 1000000 ? (v / 1000000).toLocaleString('cs-CZ', { maximumFractionDigits: 1 }) + ' mil.' : Math.abs(v) >= 1000 ? Math.round(v / 1000).toLocaleString('cs-CZ') + ' tis.' : String(Math.round(v));
+  let mrizka = '';
+  for (let v = spodni; v <= horni + krok / 2; v += krok) {
+    mrizka += `<line x1="${lev}" x2="${w - pra}" y1="${y(v)}" y2="${y(v)}" style="stroke:var(--border-c);" stroke-width="${v === 0 ? 1.4 : 0.6}" ${v === 0 ? '' : 'stroke-dasharray="3 3"'}/>
+      <text x="${lev - 5}" y="${y(v) + 3.5}" text-anchor="end" font-size="9.5" style="fill:var(--muted);">${fmt(v)}</text>`;
+  }
+  const sirkaSkup = (w - lev - pra) / kategorie.length, mezera = Math.min(14, sirkaSkup * 0.22);
+  const sirkaBar = Math.min(26, (sirkaSkup - mezera) / serie.length);
+  let sloupce = '', popisky = '';
+  kategorie.forEach((k, i) => {
+    const x0 = lev + i * sirkaSkup + (sirkaSkup - sirkaBar * serie.length) / 2;
+    serie.forEach((s, j) => {
+      const v = s.hodnoty[i] || 0, yy = y(Math.max(v, 0)), hh = Math.max(Math.abs(y(v) - y(0)), v ? 1 : 0);
+      sloupce += `<rect x="${x0 + j * sirkaBar + 1}" y="${v >= 0 ? yy : y(0)}" width="${sirkaBar - 2}" height="${hh}" rx="2.5" style="fill:${s.barva};"><title>${k} — ${s.nazev}: ${Math.round(v).toLocaleString('cs-CZ')} Kč</title></rect>`;
+    });
+    popisky += `<text x="${lev + i * sirkaSkup + sirkaSkup / 2}" y="${h - 7}" text-anchor="middle" font-size="9.5" style="fill:var(--muted);">${k}</text>`;
+  });
+  const legenda = serie.map((s, j) => `<g transform="translate(${lev + j * 74}, 4)"><rect width="9" height="9" rx="2" style="fill:${s.barva};"/><text x="13" y="8.5" font-size="9.5" style="fill:var(--muted);">${s.nazev}</text></g>`).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%; height:auto; display:block;" role="img">${legenda}${mrizka}${sloupce}${popisky}</svg>`;
+}
+
+function bizTrend(doDneska) {
+  const now = new Date(), kat = [], p = [], n = [], z = [];
+  const nazvy = ['led', 'úno', 'bře', 'dub', 'kvě', 'čvn', 'čvc', 'srp', 'zář', 'říj', 'lis', 'pro'];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const b = businessData(ym, doDneska);
+    kat.push(nazvy[d.getMonth()]); p.push(b.prijmy); n.push(b.naklady); z.push(b.zisk);
+  }
+  return { kat, p, n, z };
+}
+
 function renderBusinessKarta() {
   const mesic = bizMesic();
   const jeAktualni = mesic === toISO(new Date()).slice(0, 7);
@@ -930,40 +974,46 @@ function renderBusinessKarta() {
   const kc = (n) => Math.round(n).toLocaleString('cs-CZ') + ' Kč';
   const bar = (n) => `<b style="color:${n >= 0 ? 'var(--green)' : 'var(--red)'};">${kc(n)}</b>`;
   const marze = d.prijmy > 0 ? (d.zisk / d.prijmy * 100).toFixed(1) : '0.0';
-  const tlacitko = (k, t) => `<button class="btn ${window._bizMode === k ? 'btn-primary' : 'btn-ghost'} btn-sm" onclick="bizNastav('Mode', '${k}')">${t}</button>`;
+  const tlacitko = (k, t) => `<button class="btn ${window._bizMode === k ? 'btn-primary' : 'btn-ghost'} btn-sm" style="padding:3px 10px;" onclick="bizNastav('Mode', '${k}')">${t}</button>`;
+  const kratke = ['Velká CZ', 'Velká EU', 'PNS', 'Eon', 'Fixní'];
+  const cPrijmy = '#10b981', cNaklady = '#f87171', cZisk = '#818cf8';
+  const graf1 = svgSloupce({ kategorie: kratke, serie: [{ nazev: 'Příjmy', barva: cPrijmy, hodnoty: d.radky.map(r => r.p) }, { nazev: 'Náklady', barva: cNaklady, hodnoty: d.radky.map(r => r.c) }] });
+  const t = bizTrend(doDneska);
+  const graf2 = svgSloupce({ kategorie: t.kat, serie: [{ nazev: 'Příjmy', barva: cPrijmy, hodnoty: t.p }, { nazev: 'Náklady', barva: cNaklady, hodnoty: t.n }, { nazev: 'Zisk', barva: cZisk, hodnoty: t.z }] });
+  const mini = (l, v, barva) => `<div style="flex:1; min-width:0;"><div style="font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; white-space:nowrap;">${l}</div><div style="font-size:18px; font-weight:800; color:${barva || 'var(--white)'}; white-space:nowrap;">${v}</div></div>`;
+  const nadpisGrafu = (x) => `<div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; margin-bottom:2px;">${x}</div>`;
+  const varovani = [
+    d.bezFinanci ? `⚠ ${d.bezFinanci} jízd velké dopravy bez financí` : '',
+    d.trasBezCeny ? `⚠ ${d.trasBezCeny} tras PNS bez ceny` : '',
+    d.phmKc ? `⛽ natankováno ${Math.round(d.phmLitry).toLocaleString('cs-CZ')} l / ${kc(d.phmKc)} (informativně)` : ''
+  ].filter(Boolean).join(' · ');
   return `
-    <div class="card-panel" style="margin-bottom:20px; border-color:var(--purple-light);" id="bizKarta">
-      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
-        <div>
-          <h3 style="margin-bottom:4px;">💼 Business — cashflow a ziskovost</h3>
-          <p class="csub" style="margin-bottom:0;">${jeAktualni && doDneska ? 'Stav k dnešku, průběžně podle toho, co se zapíše.' : jeAktualni ? 'Odhad za celý měsíc (trasy PNS a Eon i na zbývající dny).' : 'Za celý uplynulý měsíc.'}</p>
-        </div>
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+    <div class="card-panel" style="margin-bottom:16px; border-color:var(--purple-light); padding:14px 18px;" id="bizKarta">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+        <h3 style="margin:0; font-size:15px;" title="${jeAktualni && doDneska ? 'Stav k dnešku' : jeAktualni ? 'Odhad za celý měsíc' : 'Celý uplynulý měsíc'}">💼 Business — cashflow a ziskovost</h3>
+        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
           ${jeAktualni ? tlacitko('todate', 'Do dneška') + tlacitko('full', 'Celý měsíc') : ''}
-          <select onchange="bizNastav('Mesic', this.value)" style="max-width:190px;">
+          <select onchange="bizNastav('Mesic', this.value)" style="max-width:170px; padding:3px 8px; font-size:12.5px;">
             ${posledni12Mesicu().map(m => `<option value="${m.value}" ${m.value === mesic ? 'selected' : ''}>${m.label}</option>`).join('')}
           </select>
         </div>
       </div>
-      <div class="metrics" style="margin-bottom:14px;">
-        <div class="metric"><div class="m-label">Příjmy</div><div class="m-value" style="color:var(--green);">${kc(d.prijmy)}</div></div>
-        <div class="metric"><div class="m-label">Náklady</div><div class="m-value">${kc(d.naklady)}</div></div>
-        <div class="metric"><div class="m-label">Čistý zisk</div><div class="m-value" style="color:${d.zisk >= 0 ? 'var(--green)' : 'var(--red)'};">${kc(d.zisk)}</div><div class="m-delta neutral">marže ${marze} %</div></div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:18px; align-items:start;">
+        <div>
+          <div style="display:flex; gap:12px; margin-bottom:8px;">
+            ${mini('Příjmy', kc(d.prijmy), 'var(--green)')}${mini('Náklady', kc(d.naklady))}${mini('Zisk · ' + marze.replace('.', ',') + ' %', kc(d.zisk), d.zisk >= 0 ? 'var(--green)' : 'var(--red)')}
+          </div>
+          <table class="data-table" style="font-size:12.5px; white-space:nowrap;">
+            <thead><tr><th style="padding:5px 8px;">Část provozu</th><th style="text-align:right; padding:5px 8px;">Příjmy</th><th style="text-align:right; padding:5px 8px;">Náklady</th><th style="text-align:right; padding:5px 8px;">Zisk</th></tr></thead>
+            <tbody>
+              ${d.radky.map((r, i) => `<tr><td style="padding:4px 8px;">${['🚚 Velká CZ', '🌍 Velká EU', '📰 PNS', '🚐 Eon', '🔧 Fixní'][i]}</td><td style="text-align:right; padding:4px 8px;">${r.p ? kc(r.p) : '—'}</td><td style="text-align:right; padding:4px 8px;">${r.c ? kc(r.c) : '—'}</td><td style="text-align:right; padding:4px 8px;">${r.p || r.c ? bar(r.p - r.c) : '—'}</td></tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div>${nadpisGrafu('Příjmy a náklady podle části')}${graf1}</div>
+        <div>${nadpisGrafu('Posledních 6 měsíců')}${graf2}</div>
       </div>
-      <div style="overflow-x:auto;">
-        <table class="data-table">
-          <thead><tr><th>Část provozu</th><th style="text-align:right">Příjmy</th><th style="text-align:right">Náklady</th><th style="text-align:right">Zisk</th></tr></thead>
-          <tbody>
-            ${d.radky.map(r => `<tr><td>${r.n}</td><td style="text-align:right">${r.p ? kc(r.p) : '—'}</td><td style="text-align:right">${r.c ? kc(r.c) : '—'}</td><td style="text-align:right">${r.p || r.c ? bar(r.p - r.c) : '—'}</td></tr>`).join('')}
-            <tr style="font-weight:700;"><td>CELKEM</td><td style="text-align:right">${kc(d.prijmy)}</td><td style="text-align:right">${kc(d.naklady)}</td><td style="text-align:right">${bar(d.zisk)}</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div style="font-size:12px; color:var(--muted); margin-top:10px; line-height:1.6;">
-        ${d.phmKc ? `⛽ Skutečně natankováno: ${Math.round(d.phmLitry).toLocaleString('cs-CZ')} l za ${kc(d.phmKc)} (informativně, v nákladech jen pokud je palivo vyplněné ve financích jízdy nebo v odhadu trasy).<br>` : ''}
-        ${d.bezFinanci ? `<span style="color:var(--amber);">⚠ ${d.bezFinanci} jízd velké dopravy nemá vyplněné finance, nezapočítávají se.</span><br>` : ''}
-        ${d.trasBezCeny ? `<span style="color:var(--amber);">⚠ ${d.trasBezCeny} tras PNS nemá nastavenou cenu, jejich příjem je nulový.</span>` : ''}
-      </div>
+      ${varovani ? `<div style="font-size:11.5px; color:var(--muted); margin-top:8px;">${varovani}</div>` : ''}
     </div>`;
 }
 

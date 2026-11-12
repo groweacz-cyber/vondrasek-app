@@ -263,6 +263,7 @@ input, select, textarea { font-family: inherit; }
 .bell-btn { position: relative; background: none; border: 1px solid var(--border-c); border-radius: 10px; color: var(--white); font-size: 18px; padding: 5px 10px; cursor: pointer; }
 .bell-btn:hover { border-color: var(--purple-light); }
 .bell-dot { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--red); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+.bell-dot[hidden] { display: none; }
 .bell-dot.inline { position: static; display: inline-block; margin-left: 6px; }
 .bell-panel { position: absolute; right: 0; top: calc(100% + 10px); width: min(420px, 90vw); max-height: 70vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--border-c); border-radius: var(--radius); box-shadow: 0 20px 50px rgba(0,0,0,0.5); padding: 14px 16px; z-index: 80; }
 .bell-panel h4 { margin: 0 0 10px; font-size: 14px; }
