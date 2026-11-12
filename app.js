@@ -359,6 +359,8 @@ function renderDashboard() {
       <button class="btn btn-primary btn-sm" onclick="openPinDialog('owner','majitele')">🔑 Změnit PIN</button>
     </div>` : ''}
 
+    ${isOwner ? renderBusinessKarta() : ''}
+
     <div class="metrics">
       <div class="metric"><div class="m-label">Najeté km</div><div class="m-value">${kmCelkem.toLocaleString('cs-CZ')}</div><div class="m-delta">▲ celkem</div></div>
       <div class="metric"><div class="m-label">Počet jízd</div><div class="m-value">${myJizdy.length}</div><div class="m-delta">▲ celkem</div></div>
@@ -674,6 +676,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 16, datum: '2026-11-12', text: 'Dashboard: Business karta — cashflow, náklady a ziskovost za kalendářní měsíc průběžně (velká doprava, PNS, Eon, fixní náklady).' },
   { id: 15, datum: '2026-11-12', text: 'Přibyla vozidla (dodávky pro malou dopravu, DAF LF a přípojný vlek pro velkou); u vozidla jde nastavit dopravu a řidiče.' },
   { id: 14, datum: '2026-11-12', text: 'Opraveny jízdní dny: PNS se jede vše kromě soboty a dne před svátkem (svátek se jede), Eon jen po–pá bez svátků. Eon: příjem 250 Kč/den.' },
   { id: 13, datum: '2026-11-12', text: 'Zvoneček s novinkami a Hlídač termínů (fakturace PNS, GW Jihotrans…) v menu.' },
@@ -856,6 +859,113 @@ window.openTerminModal = function(id) {
     saveState(); renderSection('terminy');
   });
 };
+
+// ==========================================================
+// BUSINESS KARTA (dashboard majitele) — cashflow a ziskovost za kalendářní měsíc, průběžně
+// Příjmy a náklady po částech byznysu: velká doprava CZ / EU (z financí jízd), malá doprava PNS (z nastavení tras),
+// Eon (dny × sazba) a fixní náklady vozidel. Mzdy se nepřičítají zvlášť (jsou v odměnách tras a v nákladech jízd).
+// ==========================================================
+window._bizMode = window._bizMode || 'todate';
+function bizMesic() { return window._bizMesic || toISO(new Date()).slice(0, 7); }
+window.bizNastav = function(co, hodnota) {
+  window['_biz' + co] = hodnota;
+  const el = document.getElementById('bizKarta');
+  if (el) el.outerHTML = renderBusinessKarta();
+};
+
+function businessData(mesic, doDneska) {
+  const [y, m] = mesic.split('-').map(Number);
+  const dnesIso = toISO(new Date());
+  const orez = doDneska && mesic === dnesIso.slice(0, 7);
+  const cut = orez ? dnesIso : '9999-12-31';
+  const dniVMesici = new Date(y, m, 0).getDate();
+
+  // malá doprava PNS
+  let pnsP = 0, pnsN = 0;
+  prehledJizdniDny(mesic).filter(iso => iso <= cut).forEach(iso => {
+    pnsP += vypocetPrijemDne(iso);
+    pnsN += vypocetOdhadNakladuDne(iso);
+    const rec = state.malaDoprava[iso];
+    if (rec) pnsN += (+rec.nakladyRidic || 0) + (+rec.nakladyAuto || 0) + (+rec.nakladyOstatni || 0);
+  });
+  const trasBezCeny = PNS_ROUTES.filter(r => {
+    const c = state.pnsRouteConfig[r] || {};
+    return (c.cenovyModel === 'pausal' ? +c.pausalZaDen : (+c.cenaZaKm) * (+c.kmZaDen)) <= 0;
+  }).length;
+
+  // Eon
+  const eonDnu = Object.keys(eonDnyMesice(y, m - 1)).filter(k => k <= cut).length;
+
+  // velká doprava (jízdy s financemi)
+  const velka = { cz: { p: 0, n: 0 }, eu: { p: 0, n: 0 } };
+  let bezFinanci = 0;
+  state.jizdy.filter(j => String(j.datum || '').startsWith(mesic) && j.datum <= cut).forEach(j => {
+    const t = (j.typ || 'cz') === 'eu' ? 'eu' : 'cz';
+    if (!j.financni) { bezFinanci++; return; }
+    velka[t].p += +j.financni.fakturovano || 0;
+    velka[t].n += nakladyJizdy(j.financni);
+  });
+
+  // fixní náklady vozidel (u běžícího měsíce poměrně podle uplynulých dní)
+  const podil = orez ? (+dnesIso.slice(8)) / dniVMesici : 1;
+  const fixni = state.vozidla.reduce((s, v) => s + (+v.fixniMesicne || 0), 0) * podil;
+
+  const tank = state.tankovani.filter(t => String(t.datum || '').startsWith(mesic) && t.datum <= cut);
+  const radky = [
+    { n: '🚚 Velká doprava CZ', p: velka.cz.p, c: velka.cz.n },
+    { n: '🌍 Velká doprava EU', p: velka.eu.p, c: velka.eu.n },
+    { n: '📰 Malá doprava PNS', p: pnsP, c: pnsN },
+    { n: '🚐 Trasa Eon', p: eonDnu * EON_PRIJEM_ZA_DEN, c: eonDnu * EON_KC_ZA_DEN },
+    { n: '🔧 Fixní náklady vozidel', p: 0, c: fixni }
+  ];
+  const prijmy = radky.reduce((s, r) => s + r.p, 0), naklady = radky.reduce((s, r) => s + r.c, 0);
+  return { radky, prijmy, naklady, zisk: prijmy - naklady, orez, bezFinanci, trasBezCeny, phmLitry: tank.reduce((s, t) => s + (+t.litry || 0), 0), phmKc: tank.reduce((s, t) => s + (+t.cenaCelkem || 0), 0) };
+}
+
+function renderBusinessKarta() {
+  const mesic = bizMesic();
+  const jeAktualni = mesic === toISO(new Date()).slice(0, 7);
+  const doDneska = window._bizMode === 'todate';
+  const d = businessData(mesic, doDneska);
+  const kc = (n) => Math.round(n).toLocaleString('cs-CZ') + ' Kč';
+  const bar = (n) => `<b style="color:${n >= 0 ? 'var(--green)' : 'var(--red)'};">${kc(n)}</b>`;
+  const marze = d.prijmy > 0 ? (d.zisk / d.prijmy * 100).toFixed(1) : '0.0';
+  const tlacitko = (k, t) => `<button class="btn ${window._bizMode === k ? 'btn-primary' : 'btn-ghost'} btn-sm" onclick="bizNastav('Mode', '${k}')">${t}</button>`;
+  return `
+    <div class="card-panel" style="margin-bottom:20px; border-color:var(--purple-light);" id="bizKarta">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+        <div>
+          <h3 style="margin-bottom:4px;">💼 Business — cashflow a ziskovost</h3>
+          <p class="csub" style="margin-bottom:0;">${jeAktualni && doDneska ? 'Stav k dnešku, průběžně podle toho, co se zapíše.' : jeAktualni ? 'Odhad za celý měsíc (trasy PNS a Eon i na zbývající dny).' : 'Za celý uplynulý měsíc.'}</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          ${jeAktualni ? tlacitko('todate', 'Do dneška') + tlacitko('full', 'Celý měsíc') : ''}
+          <select onchange="bizNastav('Mesic', this.value)" style="max-width:190px;">
+            ${posledni12Mesicu().map(m => `<option value="${m.value}" ${m.value === mesic ? 'selected' : ''}>${m.label}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="metrics" style="margin-bottom:14px;">
+        <div class="metric"><div class="m-label">Příjmy</div><div class="m-value" style="color:var(--green);">${kc(d.prijmy)}</div></div>
+        <div class="metric"><div class="m-label">Náklady</div><div class="m-value">${kc(d.naklady)}</div></div>
+        <div class="metric"><div class="m-label">Čistý zisk</div><div class="m-value" style="color:${d.zisk >= 0 ? 'var(--green)' : 'var(--red)'};">${kc(d.zisk)}</div><div class="m-delta neutral">marže ${marze} %</div></div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="data-table">
+          <thead><tr><th>Část provozu</th><th style="text-align:right">Příjmy</th><th style="text-align:right">Náklady</th><th style="text-align:right">Zisk</th></tr></thead>
+          <tbody>
+            ${d.radky.map(r => `<tr><td>${r.n}</td><td style="text-align:right">${r.p ? kc(r.p) : '—'}</td><td style="text-align:right">${r.c ? kc(r.c) : '—'}</td><td style="text-align:right">${r.p || r.c ? bar(r.p - r.c) : '—'}</td></tr>`).join('')}
+            <tr style="font-weight:700;"><td>CELKEM</td><td style="text-align:right">${kc(d.prijmy)}</td><td style="text-align:right">${kc(d.naklady)}</td><td style="text-align:right">${bar(d.zisk)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="font-size:12px; color:var(--muted); margin-top:10px; line-height:1.6;">
+        ${d.phmKc ? `⛽ Skutečně natankováno: ${Math.round(d.phmLitry).toLocaleString('cs-CZ')} l za ${kc(d.phmKc)} (informativně, v nákladech jen pokud je palivo vyplněné ve financích jízdy nebo v odhadu trasy).<br>` : ''}
+        ${d.bezFinanci ? `<span style="color:var(--amber);">⚠ ${d.bezFinanci} jízd velké dopravy nemá vyplněné finance, nezapočítávají se.</span><br>` : ''}
+        ${d.trasBezCeny ? `<span style="color:var(--amber);">⚠ ${d.trasBezCeny} tras PNS nemá nastavenou cenu, jejich příjem je nulový.</span>` : ''}
+      </div>
+    </div>`;
+}
 
 function kmPoslednich6Mesicu(jizdy) {
   const mesice = ['Led','Úno','Bře','Dub','Kvě','Čvn','Čvc','Srp','Zář','Říj','Lis','Pro'];
