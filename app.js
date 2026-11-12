@@ -79,12 +79,21 @@ function holidayName(iso) {
   if (!_holidayCache[year]) _holidayCache[year] = czechHolidays(year);
   return _holidayCache[year][iso] || null;
 }
-// Jede se každý den kromě neděle a státních svátků
-function isDrivingDay(iso) {
-  const d = new Date(iso);
-  if (d.getDay() === 0) return false; // neděle
-  if (holidayName(iso)) return false;
-  return true;
+// Pravidla jízdních dnů viz dnyNejedeDuvod (PNS) a isEonDay (Eon)
+// Malá doprava (PNS): jede se každý den kromě soboty. Státní svátek se jede, ale nejede se den před ním.
+function dnyNejedeDuvod(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  if (new Date(y, m - 1, d).getDay() === 6) return 'sobota';
+  const sv = holidayName(toISO(new Date(y, m - 1, d + 1)));
+  if (sv) return 'den před svátkem (' + sv + ')';
+  return null;
+}
+function isDrivingDay(iso) { return dnyNejedeDuvod(iso) === null; }
+// Trasa 20001+ (Eon): jede se pondělí–pátek, o státních svátcích ne
+function isEonDay(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dow = new Date(y, m - 1, d).getDay();
+  return dow >= 1 && dow <= 5 && !holidayName(iso);
 }
 
 // Sjednotí starý formát (hotovo: [...]) i nový formát (trasy: {...}) do jednoho tvaru
@@ -623,7 +632,7 @@ function renderPrehledProvozu() {
         ${td(`<b>${x.odjeto}</b>${x.nejelo ? ` <span style="color:var(--red); font-size:11.5px;">(${x.nejelo}× nejelo)</span>` : ''}`)}
         ${td(x.km.toLocaleString('cs-CZ'))}${td(kc(x.prijem))}${td(kc(x.naklady))}${td(zbarvi(x.zisk))}${td(x.vyjimek || '—')}
       </tr>`).join('')}
-      <tr><td><b>20001+ (Eon)</b></td><td>${eonRidiciJmena().join(', ') || '—'}</td>${td(`<b>${eonN}</b>`)}${td('—')}${td('<span style="color:var(--muted);">paušál</span>')}${td(kc(eonN * EON_KC_ZA_DEN))}${td('—')}${td('—')}</tr>
+      <tr><td><b>20001+ (Eon)</b></td><td>${eonRidiciJmena().join(', ') || '—'}</td>${td(`<b>${eonN}</b>`)}${td('—')}${td(kc(eonN * EON_PRIJEM_ZA_DEN))}${td(kc(eonN * EON_KC_ZA_DEN))}${td(zbarvi(eonN * (EON_PRIJEM_ZA_DEN - EON_KC_ZA_DEN)))}${td('—')}</tr>
       <tr style="font-weight:700;"><td>CELKEM PNS</td><td></td><td></td>${td(s.km.toLocaleString('cs-CZ'))}${td(kc(s.prijem))}${td(kc(s.naklady))}${td(zbarvi(s.prijem - s.naklady))}<td></td></tr>
     </tbody></table>`;
   } else {
@@ -665,6 +674,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 14, datum: '2026-11-12', text: 'Opraveny jízdní dny: PNS se jede vše kromě soboty a dne před svátkem (svátek se jede), Eon jen po–pá bez svátků. Eon: příjem 250 Kč/den.' },
   { id: 13, datum: '2026-11-12', text: 'Zvoneček s novinkami a Hlídač termínů (fakturace PNS, GW Jihotrans…) v menu.' },
   { id: 12, datum: '2026-11-12', text: 'Dashboard: Přehled provozu — řidiči, trasy a vozidla po měsících.' },
   { id: 11, datum: '2026-11-12', text: 'Reporty: nákladovost a ziskovost vozidel, skutečná vs. normová spotřeba.' },
@@ -921,7 +931,7 @@ function renderDnesekMalaDoprava() {
   const todayIso = toISO(new Date());
   let body;
   if (!isDrivingDay(todayIso)) {
-    const duvod = holidayName(todayIso) || 'neděle';
+    const duvod = dnyNejedeDuvod(todayIso);
     body = `<p class="csub" style="margin-bottom:0;">Dnes se nejede — ${duvod}.</p>`;
   } else {
     const podleRidice = {};
@@ -2551,7 +2561,7 @@ function renderMalaDoprava() {
 
   return `
     <div class="page-head">
-      <div><h1>📰 Malá doprava — PNS</h1><p>Rozvoz tisku, ${PNS_ROUTES.length} tras. Jede se každý den kromě neděle a státních svátků.</p></div>
+      <div><h1>📰 Malá doprava — PNS</h1><p>Rozvoz tisku, ${PNS_ROUTES.length} tras. Jede se každý den kromě soboty a dne před státním svátkem (svátek samotný se jede).</p></div>
       <div class="page-actions"><button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Tisk / PDF</button></div>
     </div>
 
@@ -2654,6 +2664,11 @@ function eonKlic(year, month) { return `${year}-${String(month + 1).padStart(2, 
 function eonDnyMesice(year, month) { const r = state.eonDny[eonKlic(year, month)]; return (r && r.dny) || {}; }
 function eonPocetDnuMesice(year, month) { return Object.keys(eonDnyMesice(year, month)).length; }
 const EON_KC_ZA_DEN = 200;   // paušál řidičce za každý den, kdy trasa jela
+const EON_PRIJEM_ZA_DEN = 250;   // příjem od klienta za každý den, kdy trasa jela
+function eonSouhrnMajitele(year, month) {
+  const n = eonPocetDnuMesice(year, month), prijem = n * EON_PRIJEM_ZA_DEN, vyplata = n * EON_KC_ZA_DEN;
+  return `Příjem od klienta: <b>${kcFmt(prijem)}</b> (${n} × ${EON_PRIJEM_ZA_DEN} Kč) · výplata řidičce ${kcFmt(vyplata)} · zisk <b style="color:var(--green);">${kcFmt(prijem - vyplata)}</b>`;
+}
 const kcFmt = (n) => n.toLocaleString('cs-CZ') + ' Kč';
 function eonCastkaMesice(year, month) { return eonPocetDnuMesice(year, month) * EON_KC_ZA_DEN; }
 function eonRidiciJmena() { return state.ridici.filter(r => r.eon).map(r => r.jmeno); }
@@ -2672,8 +2687,8 @@ function renderEonKarta(year, month, ctx) {
   for (let d = 1; d <= daysInMonth; d++) {
     const iso = toISO(new Date(year, month, d));
     const jela = !!dny[iso];
-    const vypnuto = !isDrivingDay(iso);
-    cells += `<label class="cal-cell" style="min-height:56px; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; ${jela ? 'border-color:var(--green); background:rgba(16,185,129,0.12);' : ''} ${vypnuto ? 'opacity:0.6;' : ''}" title="${holidayName(iso) || (vypnuto ? 'Neděle' : '')}">
+    const vypnuto = !isEonDay(iso);
+    cells += `<label class="cal-cell" style="min-height:56px; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; ${jela ? 'border-color:var(--green); background:rgba(16,185,129,0.12);' : ''} ${vypnuto ? 'opacity:0.6;' : ''}" title="${holidayName(iso) || (vypnuto ? 'Víkend — Eon nejede' : '')}">
       <span class="cal-daynum" style="${vypnuto ? 'color:var(--dim);' : ''}">${d}</span>
       <input type="checkbox" class="eon-den" data-iso="${iso}" ${jela ? 'checked' : ''} style="width:18px; height:18px;">
     </label>`;
@@ -2700,6 +2715,7 @@ function renderEonKarta(year, month, ctx) {
       <div style="margin-top:14px; padding:12px 14px; border:1px solid var(--green); border-radius:var(--radius-sm); background:rgba(16,185,129,0.08);">
         <div style="font-size:13px;">Jela <b id="eonPocet">${eonPocetDnuMesice(year, month)}</b> dní v měsíci ${EON_MESICE[month].toLowerCase()} × ${EON_KC_ZA_DEN} Kč za den (paušál)</div>
         <div style="font-size:16px; margin-top:4px;">${ctx === 'mala' ? 'K vyplacení řidičce' : 'Za tento měsíc dostaneš'}: <b id="eonCastka" style="color:var(--green); font-size:20px;">${kcFmt(eonCastkaMesice(year, month))}</b></div>
+        ${ctx === 'mala' ? `<div id="eonSouhrnMajitele" style="font-size:13px; margin-top:6px; color:var(--muted);">${eonSouhrnMajitele(year, month)}</div>` : ''}
       </div>
     </div>
   `;
@@ -2728,6 +2744,8 @@ function bindEon(ctx) {
     const { year, month } = mesic();
     document.getElementById('eonPocet').textContent = eonPocetDnuMesice(year, month);
     document.getElementById('eonCastka').textContent = kcFmt(eonCastkaMesice(year, month));
+    const souhrn = document.getElementById('eonSouhrnMajitele');
+    if (souhrn) souhrn.innerHTML = eonSouhrnMajitele(year, month);
     const mesice = document.getElementById('jizdyMesiceBody');   // přehled jízd na dashboardu se přepočítá hned
     if (mesice) mesice.innerHTML = jizdyMesiceRadky();
     saveState();
@@ -2791,9 +2809,9 @@ function renderMalaDopravaCalendar(year, month) {
     const isToday = iso === todayIso;
 
     if (!driving) {
-      cells += `<div class="cal-cell muted" style="min-height:56px;" title="${holiday||'Neděle'}">
+      cells += `<div class="cal-cell muted" style="min-height:56px;" title="${dnyNejedeDuvod(iso)}">
         <span class="cal-daynum" style="color:var(--dim);">${d}</span>
-        <span class="cal-tag" style="color:var(--dim);">${holiday||'Ne'}</span>
+        <span class="cal-tag" style="color:var(--dim);">${new Date(year, month, d).getDay() === 6 ? 'So' : 'před sv.'}</span>
       </div>`;
       continue;
     }
@@ -2840,7 +2858,7 @@ function renderHromadnaObjizdkaModal() {
           <h2 style="margin-bottom:2px;">🛣️ Hromadná objížďka</h2>
           <button class="btn btn-ghost btn-sm" onclick="closeModal('hromadnaObjizdkaModal')">✕</button>
         </div>
-        <p class="modal-sub">Zadej km navíc jednou pro celé období — appka je zapíše na každý jízdní den (přeskočí neděle a svátky).</p>
+        <p class="modal-sub">Zadej km navíc jednou pro celé období — appka je zapíše na každý jízdní den (přeskočí soboty a dny před státním svátkem).</p>
 
         <div class="form-row">
           <label>Trasa *</label>
@@ -2933,7 +2951,7 @@ function bindHromadnaObjizdka() {
     if (!km || km <= 0) { alert('Zadej počet km navíc.'); return; }
 
     const dny = jizdniDnyVRozmezi(od, doD);
-    if (dny.length === 0) { alert('V tomto rozmezí není žádný jízdní den (samé neděle/svátky).'); return; }
+    if (dny.length === 0) { alert('V tomto rozmezí není žádný jízdní den (samé soboty / dny před svátkem).'); return; }
 
     dny.forEach(iso => {
       if (!state.malaDoprava[iso]) state.malaDoprava[iso] = { vyjimky: {}, nakladyRidic:0, nakladyAuto:0, nakladyOstatni:0 };
