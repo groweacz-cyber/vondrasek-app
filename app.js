@@ -227,6 +227,7 @@ function showApp() {
   applyDriverView(!isOwner);
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.section === 'dashboard'));
   renderSection('dashboard');
+  inicializujZvonek();
   posliNotifikaceProUpozorneni();
   nastavStav(sync.stav);
   zacniSynchronizaci();
@@ -266,6 +267,7 @@ function renderSection(name) {
   document.getElementById('topbarTitle').textContent = SECTIONS[name]?.title || 'Dashboard';
   content.innerHTML = (SECTIONS[name] || SECTIONS.dashboard).render();
   if (SECTIONS[name]?.after) SECTIONS[name].after();
+  aktualizujTerminyBadge();
 }
 // Název aktuálně zvýrazněné sekce v menu — pro znovu-vykreslení po akci v modalu (modal sám neví, odkud byl otevřený)
 function aktualniSekceNazev(vychozi) {
@@ -283,6 +285,7 @@ const SECTIONS = {
   'velka-cz':   { title: 'Velká doprava (CZ – vnitro)', render: () => renderVelkaDoprava('cz'), after: () => bindVelkaDoprava('cz') },
   'velka-eu':   { title: 'Velká doprava EU (zahraničí)', render: () => renderVelkaDoprava('eu'), after: () => bindVelkaDoprava('eu') },
   'mala-doprava': { title: 'Malá doprava (PNS)', render: renderMalaDoprava, after: bindMalaDoprava },
+  terminy:      { title: 'Hlídač termínů', render: renderTerminy },
   web:          { title: 'Web', render: () => cs('Fáze 1','🌐','Web','Sledování výkonu webu, návštěvnosti a získaných poptávek.',['Návštěvnost','Odeslané poptávky','Konverzní míra','Zdroj návštěvníků']) },
   google:       { title: 'Google', render: () => cs('Fáze 1','🔍','Google','Přehled Google Business Profile, Ads kampaní a Search Console.',['Zobrazení v mapách','Recenze','Google Ads výkon','Search Console pozice']) },
   seznam:       { title: 'Seznam / Sklik', render: () => cs('Fáze 1','📍','Seznam / Sklik','Přehled Firmy.cz, Mapy.cz a Sklik kampaní.',['Zobrazení na Firmy.cz','Kliknutí z map','Sklik výkon','Rozpočet a náklady']) },
@@ -657,6 +660,192 @@ function renderPrehledProvozu() {
     </div>`;
 }
 
+// ==========================================================
+// NOVINKY V SYSTÉMU (zvoneček v horní liště majitele)
+// Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
+// ==========================================================
+const UPDATES = [
+  { id: 13, datum: '2026-11-12', text: 'Zvoneček s novinkami a Hlídač termínů (fakturace PNS, GW Jihotrans…) v menu.' },
+  { id: 12, datum: '2026-11-12', text: 'Dashboard: Přehled provozu — řidiči, trasy a vozidla po měsících.' },
+  { id: 11, datum: '2026-11-12', text: 'Reporty: nákladovost a ziskovost vozidel, skutečná vs. normová spotřeba.' },
+  { id: 10, datum: '2026-11-12', text: 'Náklady: odměna řidiče a denní paušál na trasách PNS, denní náklad nebo mzda řidiče, dopočet nákladů jízdy.' },
+  { id: 9, datum: '2026-11-12', text: 'Počet jízd po měsících na dashboardu (u řidičky Eon i její dny).' },
+  { id: 8, datum: '2026-11-12', text: 'Vozidla: mýto, amortizace, průměrná spotřeba, velikost nádrže, servis a fixní náklady.' },
+  { id: 7, datum: '2026-11-12', text: 'Nová řidička Renata Lišková — trasa Eon, paušál 200 Kč/den, výkaz za měsíc k tisku / PDF.' },
+  { id: 6, datum: '2026-11-12', text: 'Řidiči: zařazení do malé / velké dopravy (přepíná si i řidič sám), filtr a štítky.' },
+  { id: 5, datum: '2026-11-05', text: 'Trasa 20001+ (Eon): kalendář zaškrtnutých dnů v Malé dopravě.' },
+  { id: 4, datum: '2026-10-26', text: 'Nové PINy řidičů, obnovení řidičů tras 20013 a 20018.' },
+  { id: 3, datum: '2026-10-26', text: 'Vedoucí dopravy (Romana Jakubcová): zapisuje jízdy, tankování a objížďky za ostatní řidiče, bez financí.' },
+  { id: 2, datum: '2026-10-21', text: 'Řidiči: skutečná jména a telefony, nové trasy 20013 a 20018.' },
+  { id: 1, datum: '2026-10-20', text: 'Ostrý provoz: jízdy, tankování, vozidla, řidiči, zakázky a malá doprava na společném serveru, přihlášení PINem.' }
+];
+const UPDATES_KLIC = 'vondrasek_updates_seen';
+function updatesVideno() {
+  try { const v = localStorage.getItem(UPDATES_KLIC); if (v !== null) return +v || 0; } catch (e) {}
+  return Math.max(...UPDATES.map(u => u.id)) - 1;   // poprvé: jako nová se ukáže jen nejnovější
+}
+function updatesNepectenych() { const v = updatesVideno(); return UPDATES.filter(u => u.id > v).length; }
+function inicializujZvonek() {
+  const wrap = document.getElementById('bellWrap');
+  if (!wrap) return;
+  wrap.hidden = state.role !== 'owner';
+  if (state.role !== 'owner') return;
+  const dot = document.getElementById('bellDot'), panel = document.getElementById('bellPanel'), btn = document.getElementById('bellBtn');
+  const obnovTecku = () => { const n = updatesNepectenych(); dot.hidden = n === 0; dot.textContent = n; };
+  obnovTecku();
+  if (btn.dataset.bound) return;
+  btn.dataset.bound = '1';
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!panel.hidden) { panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); return; }
+    const videno = updatesVideno();
+    panel.innerHTML = `<h4>🔔 Co je nového v systému</h4>` + UPDATES.map(u => `
+      <div class="bell-item ${u.id > videno ? 'nove' : ''}"><span class="bd">${formatDate(u.datum)}</span><span class="bt">${u.text}</span></div>`).join('');
+    panel.hidden = false; btn.setAttribute('aria-expanded', 'true');
+    try { localStorage.setItem(UPDATES_KLIC, String(Math.max(...UPDATES.map(u => u.id)))); } catch (err) {}
+    dot.hidden = true;   // označeno za přečtené; zvýrazněné řádky v otevřeném okně zůstanou, dokud ho nezavřeš
+  });
+  document.addEventListener('click', (e) => { if (!panel.hidden && !wrap.contains(e.target)) { panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); } });
+}
+
+// ==========================================================
+// HLÍDAČ TERMÍNŮ — opakované (každý měsíc k určitému dni) i jednorázové termíny, např. fakturace
+// termín: { id, nazev, typ: 'mesicni' | 'jednorazovy', den, datum, predem, poznamka, splneno: { 'RRRR-MM': true }, hotovo }
+// ==========================================================
+const TERMINY_NAVRHY = ['Fakturace PNS', 'Fakturace GW Jihotrans'];
+function dnyDoData(iso) {
+  const dnes = new Date(); dnes.setHours(0, 0, 0, 0);
+  return Math.round((new Date(iso + 'T00:00:00') - dnes) / 86400000);
+}
+function dneMesice(y, m, den) { return Math.min(Math.max(+den || 1, 1), new Date(y, m + 1, 0).getDate()); }
+// Nejbližší nesplněný termín (datum RRRR-MM-DD) nebo null, když je jednorázový splněný
+function terminDalsi(t) {
+  if (t.typ === 'jednorazovy') return t.hotovo || !t.datum ? null : t.datum;
+  const now = new Date();
+  for (let i = 0; i < 24; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (t.splneno && t.splneno[ym]) continue;
+    return `${ym}-${String(dneMesice(d.getFullYear(), d.getMonth(), t.den)).padStart(2, '0')}`;
+  }
+  return null;
+}
+function terminStav(t) {
+  const due = terminDalsi(t);
+  if (!due) return { due: null, dny: null, urgent: false };
+  const dny = dnyDoData(due);
+  return { due, dny, urgent: dny <= (t.predem === undefined || t.predem === '' ? 3 : +t.predem) };
+}
+function terminyKUrgenci() { return (state.terminy || []).map(t => ({ t, ...terminStav(t) })).filter(x => x.urgent); }
+function aktualizujTerminyBadge() {
+  const b = document.getElementById('terminyBadge');
+  if (!b) return;
+  const n = state.role === 'owner' ? terminyKUrgenci().length : 0;
+  b.hidden = n === 0; b.textContent = n;
+}
+
+function terminPopis(t) {
+  return t.typ === 'jednorazovy' ? 'jednorázově' : `každý měsíc k ${t.den}.`;
+}
+function renderTerminy() {
+  const radky = (state.terminy || []).map(t => ({ t, ...terminStav(t) }));
+  radky.sort((a, b) => (a.due === null) - (b.due === null) || String(a.due).localeCompare(String(b.due)));
+  const badge = (x) => {
+    if (!x.due) return '<span class="badge ok">Splněno</span>';
+    if (x.dny < 0) return `<span class="badge err">Po termínu o ${-x.dny} ${-x.dny === 1 ? 'den' : 'dní'}</span>`;
+    if (x.dny === 0) return '<span class="badge err">Dnes</span>';
+    if (x.urgent) return `<span class="badge warn">Za ${x.dny} ${x.dny === 1 ? 'den' : x.dny < 5 ? 'dny' : 'dní'}</span>`;
+    return `<span class="badge info">Za ${x.dny} dní</span>`;
+  };
+  return `
+    <div class="page-head">
+      <div><h1>⏰ Hlídač termínů</h1><p>Opakované i jednorázové termíny (fakturace a podobně). Blížící se a prošlé se ukazují v Upozornění na dashboardu.</p></div>
+      <div class="page-actions"><button class="btn btn-primary" onclick="openTerminModal()">+ Nový termín</button></div>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Termín</th><th>Opakování</th><th>Nejbližší</th><th>Stav</th><th></th></tr></thead>
+        <tbody>
+          ${radky.length ? radky.map(x => `<tr style="${!x.due ? 'opacity:0.6;' : ''}">
+            <td><b>${x.t.nazev}</b>${x.t.poznamka ? `<div style="font-size:12px; color:var(--muted);">${x.t.poznamka}</div>` : ''}</td>
+            <td>${terminPopis(x.t)}${x.t.predem !== undefined && x.t.predem !== '' ? `<div style="font-size:11.5px; color:var(--muted);">upozornit ${x.t.predem} dní předem</div>` : ''}</td>
+            <td>${x.due ? formatDate(x.due) : '—'}</td>
+            <td>${badge(x)}</td>
+            <td style="display:flex; gap:6px; flex-wrap:wrap;">
+              ${x.due ? `<button class="btn btn-primary btn-sm" onclick="terminSplnen(${x.t.id})">✓ Splněno</button>` : ''}
+              <button class="btn btn-ghost btn-sm" onclick="openTerminModal(${x.t.id})">Upravit</button>
+              <button class="btn btn-danger btn-sm" onclick="terminSmazat(${x.t.id})">Smazat</button>
+            </td>
+          </tr>`).join('') : `<tr><td colspan="5"><div class="empty-state"><div class="empty-ic">⏰</div>Zatím žádné termíny. Přidej třeba „Fakturace PNS" každý měsíc k určitému dni.</div></td></tr>`}
+        </tbody>
+      </table>
+    </div>
+    <div id="terminModalHost"></div>`;
+}
+window.terminSplnen = function(id) {
+  const t = state.terminy.find(x => x.id === id); if (!t) return;
+  const due = terminDalsi(t); if (!due) return;
+  if (t.typ === 'jednorazovy') t.hotovo = true; else { t.splneno = t.splneno || {}; t.splneno[due.slice(0, 7)] = true; }
+  saveState(); renderSection('terminy');
+};
+window.terminSmazat = function(id) {
+  const t = state.terminy.find(x => x.id === id); if (!t) return;
+  if (!confirm(`Smazat termín „${t.nazev}"?`)) return;
+  state.terminy = state.terminy.filter(x => x.id !== id);
+  saveState(); renderSection('terminy');
+};
+window.openTerminModal = function(id) {
+  const t = state.terminy.find(x => x.id === id) || {};
+  const host = document.getElementById('terminModalHost');
+  host.innerHTML = `
+    <div class="modal-overlay open" id="terminModal"><div class="modal">
+      <h2>${t.id ? 'Upravit termín' : 'Nový termín'}</h2>
+      <p class="modal-sub">Opakovaný termín se po splnění sám posune na další měsíc.</p>
+      <form id="terminForm">
+        <div class="form-row"><label>Název *</label><input type="text" name="nazev" required value="${hAttr(t.nazev)}" placeholder="např. Fakturace PNS">
+          ${t.id ? '' : `<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;">${TERMINY_NAVRHY.map(n => `<button type="button" class="btn btn-ghost btn-sm" onclick="this.closest('form').nazev.value='${n}'">${n}</button>`).join('')}</div>`}
+        </div>
+        <div class="form-row"><label>Opakování *</label>
+          <select name="typ" id="terminTyp">
+            <option value="mesicni" ${t.typ !== 'jednorazovy' ? 'selected' : ''}>Každý měsíc</option>
+            <option value="jednorazovy" ${t.typ === 'jednorazovy' ? 'selected' : ''}>Jednorázově</option>
+          </select>
+        </div>
+        <div class="form-cols-2">
+          <div class="form-row" id="terminDenWrap"><label>Den v měsíci *</label><input type="number" name="den" min="1" max="31" value="${t.den || ''}" placeholder="např. 5"></div>
+          <div class="form-row" id="terminDatumWrap"><label>Datum *</label><input type="date" name="datum" value="${t.datum || ''}"></div>
+          <div class="form-row"><label>Upozornit předem (dní)</label><input type="number" name="predem" min="0" max="60" value="${t.predem === undefined ? 3 : t.predem}"></div>
+        </div>
+        <div class="form-row"><label>Poznámka</label><input type="text" name="poznamka" value="${hAttr(t.poznamka)}" placeholder="nepovinné"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" onclick="document.getElementById('terminModal').remove()">Zrušit</button>
+          <button type="submit" class="btn btn-primary">${t.id ? 'Uložit' : 'Přidat termín'}</button>
+        </div>
+      </form>
+    </div></div>`;
+  const f = document.getElementById('terminForm');
+  const prepni = () => {
+    const mes = f.typ.value === 'mesicni';
+    document.getElementById('terminDenWrap').style.display = mes ? '' : 'none';
+    document.getElementById('terminDatumWrap').style.display = mes ? 'none' : '';
+    f.den.required = mes; f.datum.required = !mes;
+  };
+  f.typ.addEventListener('change', prepni); prepni();
+  f.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const data = {
+      nazev: f.nazev.value.trim(), typ: f.typ.value, predem: f.predem.value === '' ? 3 : +f.predem.value, poznamka: f.poznamka.value.trim(),
+      den: f.typ.value === 'mesicni' ? Math.min(31, Math.max(1, +f.den.value || 1)) : undefined,
+      datum: f.typ.value === 'jednorazovy' ? f.datum.value : undefined
+    };
+    if (t.id) {
+      const i = state.terminy.findIndex(x => x.id === t.id);
+      if (i >= 0) { const stary = state.terminy[i]; state.terminy[i] = { ...stary, ...data, splneno: stary.splneno, hotovo: data.typ === 'jednorazovy' && data.datum === stary.datum ? stary.hotovo : false }; }
+    } else state.terminy.push({ id: Date.now(), ...data, splneno: {} });
+    saveState(); renderSection('terminy');
+  });
+};
+
 function kmPoslednich6Mesicu(jizdy) {
   const mesice = ['Led','Úno','Bře','Dub','Kvě','Čvn','Čvc','Srp','Zář','Říj','Lis','Pro'];
   const now = new Date();
@@ -1002,6 +1191,12 @@ function ziskatVarovani() {
     if (k <= 60 && k >= 0) varovani.push({ ico:'💳', text:`Karta řidiče ${r.jmeno} vyprší za ${k} dní`, level:'warn', dny: k });
     const c = stazeniVarovani(`Stažení karty řidiče ${r.jmeno}`, r.posledniStazeniKarty, 28);
     if (c) varovani.push({ ico:'📥', ...c });
+  });
+  (state.terminy || []).forEach(t => {
+    const st = terminStav(t);
+    if (!st.due || !st.urgent) return;
+    const text = st.dny < 0 ? `Termín „${t.nazev}" prošel o ${-st.dny} dní (${formatDate(st.due)})` : st.dny === 0 ? `Termín „${t.nazev}" je dnes` : `Termín „${t.nazev}" za ${st.dny} dní (${formatDate(st.due)})`;
+    varovani.push({ ico: '⏰', text, level: st.dny <= 0 ? 'err' : 'warn', dny: st.dny });
   });
   return varovani;
 }
