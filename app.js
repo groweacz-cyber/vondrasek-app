@@ -782,6 +782,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 22, datum: '2026-11-12', text: 'Výkaz trasy 20001+ k tisku / PDF je podklad pro plátce: cena 250 Kč za den, celkem k úhradě, bez jména řidiče.' },
   { id: 21, datum: '2026-11-12', text: 'Export objížděk i jako přehledný PDF výkaz (souhrn po trasách a seznam objížděk za měsíc).' },
   { id: 20, datum: '2026-11-12', text: 'Dashboard přejmenován na Kompletní přehled. Malá doprava: tlačítko Export objížděk (výběr měsíce, jen trasy PNS). Z tisku a exportů je pryč vše mimo samotná data.' },
   { id: 19, datum: '2026-11-12', text: 'Dashboard a Evidence jízd: počet jízd po měsících (dlaždice nahoře i tabulka) rozdělený na velkou dopravu vnitro (ČR), mimo ČR, malou dopravu PNS (odjeté dny) a Eon; v Evidenci jízd filtr druhu dopravy včetně malé dopravy a Eonu.' },
@@ -3069,33 +3070,54 @@ function bindEon(ctx) {
 
 // Tiskový výkaz Eonu za měsíc (majitel ho uloží do PDF v tiskovém dialogu prohlížeče)
 function eonTiskHtml(year, month) {
-  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const dny = eonDnyMesice(year, month);
-  const pocet = Object.keys(dny).length;
-  const n = new Date(year, month + 1, 0).getDate();
+  const dny = Object.keys(eonDnyMesice(year, month)).sort();
+  const pocet = dny.length;
   const dnyTydne = ['neděle', 'pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota'];
-  const jmena = eonRidiciJmena().join(', ') || '—';
-  let radky = '';
-  for (let d = 1; d <= n; d++) {
-    const dt = new Date(year, month, d), iso = toISO(dt), jela = !!dny[iso];
-    radky += `<tr class="${jela ? 'jela' : ''} ${dt.getDay() === 0 ? 'ne' : ''}"><td>${d}. ${month + 1}. ${year}</td><td>${dnyTydne[dt.getDay()]}</td><td class="c">${jela ? '✔ jela' : ''}</td></tr>`;
-  }
-  return `<!doctype html><html lang="cs"><head><meta charset="utf-8"><title>Eon ${EON_MESICE[month]} ${year}</title>
+  const cena = EON_PRIJEM_ZA_DEN;   // výkaz je podklad pro plátce: cena za den, bez jmen řidičů
+  const radky = dny.map((iso, i) => {
+    const dt = new Date(iso + 'T00:00:00');
+    return `<tr><td class="c">${i + 1}</td><td>${formatDate(iso)}</td><td>${dnyTydne[dt.getDay()]}</td><td class="c">${kcFmt(cena)}</td></tr>`;
+  }).join('');
+  return `<!doctype html><html lang="cs"><head><meta charset="utf-8"><title>Trasa 20001+ ${EON_MESICE[month]} ${year}</title>
 <style>
   @page { size: A4; margin: 16mm; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #111; font-size: 12px; }
-  h1 { font-size: 20px; margin: 0 0 4px; } .sub { color: #555; margin-bottom: 14px; }
-  .meta { display: flex; gap: 30px; margin-bottom: 14px; } .meta b { display: block; font-size: 11px; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
-  table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #bbb; padding: 4px 8px; text-align: left; }
-  th { background: #eee; } .c { text-align: center; } tr.jela td { font-weight: 700; background: #e6f4ea; } tr.ne td { color: #888; }
-  .sum { margin-top: 14px; font-size: 14px; } .sign { display: flex; justify-content: space-between; margin-top: 46px; } .sign div { width: 44%; border-top: 1px solid #111; padding-top: 4px; font-size: 11px; color: #555; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, Helvetica, sans-serif; color: #1b2233; font-size: 12px; margin: 0; }
+  .top { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #1f3a6e; padding-bottom: 10px; margin-bottom: 18px; }
+  .brand { font-size: 12px; font-weight: 700; color: #1f3a6e; letter-spacing: .3px; }
+  h1 { font-size: 22px; margin: 4px 0 0; color: #111a2e; }
+  .mes { font-size: 17px; font-weight: 700; color: #1f3a6e; text-align: right; }
+  .mes small { display: block; font-size: 10.5px; font-weight: 400; color: #667; }
+  .boxy { display: flex; gap: 12px; margin-bottom: 18px; }
+  .box { flex: 1; border: 1px solid #d5dbe8; border-radius: 8px; padding: 10px 14px; background: #f5f7fc; }
+  .box b { display: block; font-size: 20px; color: #1f3a6e; margin-top: 2px; }
+  .box span { font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: #667; }
+  table { border-collapse: collapse; width: 100%; }
+  thead { display: table-header-group; }
+  th { background: #1f3a6e; color: #fff; text-align: left; font-weight: 600; font-size: 10.5px; padding: 6px 9px; }
+  th.c, td.c { text-align: right; white-space: nowrap; }
+  td { padding: 5px 9px; border-bottom: 1px solid #e3e7f0; }
+  tr { page-break-inside: avoid; }
+  tbody tr:nth-child(even) td { background: #f8f9fc; }
+  tr.suma td { font-weight: 700; border-top: 2px solid #1f3a6e; background: #eef2fb !important; }
+  .prazdno { padding: 26px; text-align: center; color: #667; border: 1px dashed #c5cde0; border-radius: 8px; }
+  .sign { display: flex; justify-content: space-between; margin-top: 54px; } .sign div { width: 44%; border-top: 1px solid #1b2233; padding-top: 4px; font-size: 10.5px; color: #556; }
+  .pata { margin-top: 14px; font-size: 10px; color: #778; display: flex; justify-content: space-between; }
 </style></head><body>
-<h1>Trasa 20001+ (Eon) — výkaz dnů</h1>
-<div class="sub">Autodoprava Vondrášek, s.r.o. · paušální trasa</div>
-<div class="meta"><div><b>Měsíc</b>${EON_MESICE[month]} ${year}</div><div><b>Řidič</b>${esc(jmena)}</div></div>
-<table><thead><tr><th>Datum</th><th>Den</th><th class="c">Trasa jela</th></tr></thead><tbody>${radky}</tbody></table>
-<div class="sum">Počet dní, kdy trasa jela: <b>${pocet}</b> × ${EON_KC_ZA_DEN} Kč (paušál za den) = <b>K vyplacení: ${kcFmt(pocet * EON_KC_ZA_DEN)}</b></div>
-<div class="sign"><div>Podpis řidiče</div><div>Schválil (majitel)</div></div>
+<div class="top">
+  <div><div class="brand">AUTODOPRAVA VONDRÁŠEK, S.R.O.</div><h1>Trasa 20001+ — výkaz jízd</h1></div>
+  <div class="mes">${EON_MESICE[month]} ${year}<small>paušál za každý den, kdy trasa jela</small></div>
+</div>
+<div class="boxy">
+  <div class="box"><span>Počet dní, kdy trasa jela</span><b>${pocet}</b></div>
+  <div class="box"><span>Cena za den</span><b>${kcFmt(cena)}</b></div>
+  <div class="box"><span>Celkem k úhradě</span><b>${kcFmt(pocet * cena)}</b></div>
+</div>
+${pocet ? `<table><thead><tr><th class="c" style="width:40px;">#</th><th>Datum</th><th>Den</th><th class="c">Cena</th></tr></thead><tbody>${radky}
+<tr class="suma"><td></td><td>CELKEM</td><td>${pocet} ${pocet === 1 ? 'den' : pocet < 5 ? 'dny' : 'dní'}</td><td class="c">${kcFmt(pocet * cena)}</td></tr></tbody></table>`
+  : '<div class="prazdno">V tomto měsíci trasa nejela žádný den.</div>'}
+<div class="sign"><div>Za Autodopravu Vondrášek, s.r.o.</div><div>Převzal (plátce)</div></div>
+<div class="pata"><span>Cena celkem = počet dní × ${kcFmt(cena)}.</span><span>Vytvořeno ${new Date().toLocaleDateString('cs-CZ')}</span></div>
 </body></html>`;
 }
 window.tiskEonMesic = function (year, month) {
