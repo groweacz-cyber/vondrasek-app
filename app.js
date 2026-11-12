@@ -674,6 +674,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 15, datum: '2026-11-12', text: 'Přibyla vozidla (dodávky pro malou dopravu, DAF LF a přípojný vlek pro velkou); u vozidla jde nastavit dopravu a řidiče.' },
   { id: 14, datum: '2026-11-12', text: 'Opraveny jízdní dny: PNS se jede vše kromě soboty a dne před svátkem (svátek se jede), Eon jen po–pá bez svátků. Eon: příjem 250 Kč/den.' },
   { id: 13, datum: '2026-11-12', text: 'Zvoneček s novinkami a Hlídač termínů (fakturace PNS, GW Jihotrans…) v menu.' },
   { id: 12, datum: '2026-11-12', text: 'Dashboard: Přehled provozu — řidiči, trasy a vozidla po měsících.' },
@@ -1737,7 +1738,7 @@ function renderTankModal(t={}, zaJineho = false) {
           <div class="form-cols-2">
             <div class="form-row"><label>Vozidlo *</label>
               <select name="vozidlo" required>
-                ${state.vozidla.map(v => {
+                ${state.vozidla.filter(v => !jeNemotorove(v.typ)).map(v => {
                   const posledni = isDriver ? state.lastVozidloPerDriver[state.driverId] : null;
                   const selected = t.vozidlo ? v.spz === t.vozidlo : (posledni ? v.spz === posledni : false);
                   return `<option ${selected?'selected':''}>${v.spz}</option>`;
@@ -1899,7 +1900,7 @@ function renderVozidla() {
             const maTacho = ['Kamion','Tahač'].includes(v.typ);
             return `
             <tr>
-              <td><b>${v.spz}</b></td><td>${v.typ}</td><td>${v.znacka}</td>
+              <td><b>${v.spz}</b><div style="font-size:11.5px; margin-top:2px;">${v.doprava==='mala'?'<span class="badge ok">📰 Malá</span>':v.doprava==='velka'?'<span class="badge warn">🚛 Velká</span>':''}${v.ridicId?` <span style="color:var(--muted);">👷 ${(state.ridici.find(r=>String(r.id)===String(v.ridicId))||{}).jmeno||''}</span>`:''}</div></td><td>${v.typ}</td><td>${v.znacka}</td>
               <td>${formatDate(v.stk)} ${termBadge(v.stk)}</td>
               <td>${formatDate(v.pojistka)} ${termBadge(v.pojistka)}</td>
               <td>${v.dalnicniZnamka ? formatDate(v.dalnicniZnamka)+' '+termBadge(v.dalnicniZnamka) : '<span style="color:var(--dim);font-size:12px;">—</span>'}</td>
@@ -1926,6 +1927,10 @@ function renderVozidla() {
     ${renderVozidloModal()}
   `;
 }
+// Nemotorová vozidla (vlek, návěs) nemají spotřebu, nádrž ani se netankují
+const NEMOTOROVE_TYPY = ['Přípojný vlek', 'Návěs'];
+const jeNemotorove = (typ) => NEMOTOROVE_TYPY.includes(typ);
+
 function renderVozidloModal(v={}) {
   return `
     <div class="modal-overlay" id="vozidloModal">
@@ -1938,14 +1943,29 @@ function renderVozidloModal(v={}) {
             <div class="form-row"><label>SPZ *</label><input type="text" name="spz" required value="${v.spz||''}" placeholder="např. 3C1 2345"></div>
             <div class="form-row"><label>Typ *</label>
               <select name="typ" required>
-                ${['Dodávka','Kamion','Tahač','Návěs','Jiné'].map(t=>`<option ${v.typ===t?'selected':''}>${t}</option>`).join('')}
+                ${['Dodávka','Kamion','Tahač','Návěs','Přípojný vlek','Jiné'].map(t=>`<option ${v.typ===t?'selected':''}>${t}</option>`).join('')}
               </select>
             </div>
           </div>
           <div class="form-row"><label>Značka a model *</label><input type="text" name="znacka" required value="${v.znacka||''}" placeholder="např. Mercedes Sprinter 316"></div>
           <div class="form-cols-2">
-            <div class="form-row"><label>STK platná do *</label><input type="date" name="stk" required value="${v.stk||''}"></div>
-            <div class="form-row"><label>Pojistka platná do *</label><input type="date" name="pojistka" required value="${v.pojistka||''}"></div>
+            <div class="form-row"><label>Doprava</label>
+              <select name="doprava">
+                <option value="" ${!v.doprava?'selected':''}>— nezařazeno —</option>
+                <option value="mala" ${v.doprava==='mala'?'selected':''}>📰 Malá doprava</option>
+                <option value="velka" ${v.doprava==='velka'?'selected':''}>🚛 Velká doprava</option>
+              </select>
+            </div>
+            <div class="form-row"><label>Přiřazený řidič</label>
+              <select name="ridicId">
+                <option value="">— zatím nikdo —</option>
+                ${state.ridici.map(r => `<option value="${r.id}" ${String(v.ridicId)===String(r.id)?'selected':''}>${r.jmeno}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="form-cols-2">
+            <div class="form-row"><label>STK platná do</label><input type="date" name="stk" value="${v.stk||''}"></div>
+            <div class="form-row"><label>Pojistka platná do</label><input type="date" name="pojistka" value="${v.pojistka||''}"></div>
           </div>
           <div class="form-row"><label>Dálniční známka platná do</label><input type="date" name="dalnicniZnamka" value="${v.dalnicniZnamka||''}"></div>
           <div class="form-row" id="tachoFieldWrap" style="${['Kamion','Tahač'].includes(v.typ)?'':'display:none;'}">
@@ -1997,14 +2017,18 @@ function bindVozidla() {
   document.getElementById('btnAddVozidlo').addEventListener('click', () => openModal('vozidloModal'));
   const typSelect = document.querySelector('#vozidloForm [name="typ"]');
   if (typSelect) {
-    typSelect.addEventListener('change', () => {
+    const prepni = () => {
       document.getElementById('tachoFieldWrap').style.display = ['Kamion','Tahač'].includes(typSelect.value) ? '' : 'none';
-    });
+      const bez = jeNemotorove(typSelect.value);
+      ['prumernaSpotreba', 'objemNadrze', 'mytoKm'].forEach(n => { const r = typSelect.form[n]?.closest('.form-row'); if (r) r.style.display = bez ? 'none' : ''; });
+    };
+    typSelect.addEventListener('change', prepni);
+    prepni();
   }
   document.getElementById('vozidloForm').addEventListener('submit', (e) => {
     e.preventDefault(); const fd = new FormData(e.target);
     const editId = fd.get('editId');
-    const data = { spz: fd.get('spz'), typ: fd.get('typ'), znacka: fd.get('znacka'), stk: fd.get('stk'), pojistka: fd.get('pojistka'), dalnicniZnamka: fd.get('dalnicniZnamka') || null, poznamka: fd.get('poznamka'), amortizaceKm: +fd.get('amortizaceKm') || 0, mytoKm: +fd.get('mytoKm') || 0, prumernaSpotreba: +fd.get('prumernaSpotreba') || 0, objemNadrze: +fd.get('objemNadrze') || 0, servisKm: +fd.get('servisKm') || 0, fixniMesicne: +fd.get('fixniMesicne') || 0, posledniStazeniTacho: fd.get('posledniStazeniTacho') || null };
+    const data = { spz: fd.get('spz'), typ: fd.get('typ'), znacka: fd.get('znacka'), stk: fd.get('stk'), pojistka: fd.get('pojistka'), dalnicniZnamka: fd.get('dalnicniZnamka') || null, poznamka: fd.get('poznamka'), amortizaceKm: +fd.get('amortizaceKm') || 0, mytoKm: +fd.get('mytoKm') || 0, prumernaSpotreba: +fd.get('prumernaSpotreba') || 0, objemNadrze: +fd.get('objemNadrze') || 0, servisKm: +fd.get('servisKm') || 0, fixniMesicne: +fd.get('fixniMesicne') || 0, posledniStazeniTacho: fd.get('posledniStazeniTacho') || null, doprava: fd.get('doprava') || '', ridicId: fd.get('ridicId') || null };
     if (editId) {
       const idx = state.vozidla.findIndex(v=>v.id===+editId);
       if (idx>=0) state.vozidla[idx] = { ...state.vozidla[idx], ...data };
