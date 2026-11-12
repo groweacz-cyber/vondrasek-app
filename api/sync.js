@@ -17,18 +17,27 @@ async function zjistiMojeTrasy(q, rel) {
   return rows.map(r => r.id);
 }
 
+// Je řidič přiřazený k trase 20001+ (Eon)? (příznak "eon" u jeho záznamu nastavuje jen majitel)
+// Kalendář dnů Eonu (kolekce eonDny) smí číst a zapisovat jen tahle řidička/řidič, ostatní ne.
+async function jeEonRidic(q, rel) {
+  if (rel.role === 'owner' || rel.driverId == null) return false;
+  const rows = await q(`SELECT 1 FROM vnd_records WHERE coll = 'ridici' AND id = $1 AND deleted = false AND data->>'eon' = 'true'`, [String(rel.driverId)]);
+  return rows.length > 0;
+}
+
 async function ctiZmeny(req, res, q, rel) {
   const since = Math.max(0, parseInt(req.query && req.query.since, 10) || 0);
+  const jeEon = await jeEonRidic(q, rel);
   const rows = rel.role === 'owner'
     ? await q('SELECT coll, id, data, deleted, seq FROM vnd_records WHERE seq > $1 ORDER BY seq LIMIT ' + STRANKA, [since])
     : rel.role === 'dispecer'
     // Vedoucí dopravy vidí jízdy/tankování/hlášení objížděk za VŠECHNY řidiče (bez financí), ne jen svoje.
     ? await q(`SELECT coll, id, data, deleted, seq FROM vnd_records
-               WHERE seq > $1 AND coll IN ('vozidla', 'ridici', 'jizdy', 'tankovani', 'hlaseniObjizdek')
-               ORDER BY seq LIMIT ` + STRANKA, [since])
+               WHERE seq > $1 AND (coll IN ('vozidla', 'ridici', 'jizdy', 'tankovani', 'hlaseniObjizdek') OR (coll = 'eonDny' AND $2::boolean))
+               ORDER BY seq LIMIT ` + STRANKA, [since, jeEon])
     : await q(`SELECT coll, id, data, deleted, seq FROM vnd_records
-               WHERE seq > $1 AND (coll IN ('vozidla', 'ridici') OR (coll IN ('jizdy', 'tankovani', 'hlaseniObjizdek') AND data->>'driverId' = $2))
-               ORDER BY seq LIMIT ` + STRANKA, [since, String(rel.driverId)]);
+               WHERE seq > $1 AND (coll IN ('vozidla', 'ridici') OR (coll IN ('jizdy', 'tankovani', 'hlaseniObjizdek') AND data->>'driverId' = $2) OR (coll = 'eonDny' AND $3::boolean))
+               ORDER BY seq LIMIT ` + STRANKA, [since, String(rel.driverId), jeEon]);
   const dalsi = rows.length === STRANKA;
   let seq;
   if (dalsi) seq = Number(rows[rows.length - 1].seq);
@@ -38,7 +47,7 @@ async function ctiZmeny(req, res, q, rel) {
     data: rel.role === 'owner' ? r.data : rel.role === 'dispecer' ? projekceProDispecera(r.coll, r.data) : projekceProRidice(r.coll, r.data)
   }));
   const me = { role: rel.role, driverId: rel.driverId, mustChangePin: rel.mustChange };
-  if (rel.role === 'driver' || rel.role === 'dispecer') me.mojeTrasy = await zjistiMojeTrasy(q, rel);
+  if (rel.role === 'driver' || rel.role === 'dispecer') { me.mojeTrasy = await zjistiMojeTrasy(q, rel); me.eonRidic = jeEon; }
   return res.status(200).json({ seq, more: dalsi, records, me });
 }
 
@@ -85,6 +94,7 @@ async function ulozZmeny(req, res, q, rel) {
     data: o && o.data, receipt: o ? o.receipt : undefined
   }));
   const vysledky = new Array(seznam.length);
+  let eonPovoleno = null;   // zjistí se líně, jen když přijde zápis do eonDny
 
   // načtení stávajících záznamů jedním dotazem (kvůli oprávněním a zachování financí / účtenek)
   const platne = seznam.filter(o => KOLEKCE.includes(o.coll) && o.id && o.id !== 'undefined');
@@ -104,8 +114,13 @@ async function ulozZmeny(req, res, q, rel) {
     const staryData = stary && !stary.deleted ? stary.data : null;
 
     if (!jeMajitel) {
-      if (!RIDIC_PISE.includes(o.coll)) { chyba('Tuhle část smí upravovat jen majitel.'); continue; }
-      if (!jeDispecer && staryData && String(staryData.driverId) !== String(rel.driverId)) { chyba('Cizí záznam.'); continue; }
+      if (o.coll === 'eonDny') {
+        if (eonPovoleno === null) eonPovoleno = await jeEonRidic(q, rel);
+        if (!eonPovoleno) { chyba('Kalendář trasy Eon smí upravovat jen k ní přiřazená řidička.'); continue; }
+      } else {
+        if (!RIDIC_PISE.includes(o.coll)) { chyba('Tuhle část smí upravovat jen majitel.'); continue; }
+        if (!jeDispecer && staryData && String(staryData.driverId) !== String(rel.driverId)) { chyba('Cizí záznam.'); continue; }
+      }
     }
 
     try {
@@ -122,8 +137,14 @@ async function ulozZmeny(req, res, q, rel) {
       }
 
       if (!jeObjekt(o.data)) { chyba('Neplatná data záznamu.'); continue; }
-      const data = { ...o.data };
-      if (!jeMajitel && !jeDispecer && String(data.driverId) !== String(rel.driverId)) { chyba('Záznam musí patřit přihlášenému řidiči.'); continue; }
+      let data = { ...o.data };
+      if (o.coll === 'eonDny') {
+        // záznam = jeden měsíc ("RRRR-MM"), uvnitř jen platná data z toho měsíce
+        if (!/^\d{4}-\d{2}$/.test(o.id)) { chyba('Neplatný měsíc.'); continue; }
+        const dny = {};
+        Object.keys(jeObjekt(data.dny) ? data.dny : {}).forEach(k => { if (/^\d{4}-\d{2}-\d{2}$/.test(k) && k.startsWith(o.id + '-') && data.dny[k]) dny[k] = true; });
+        data = { dny };
+      } else if (!jeMajitel && !jeDispecer && String(data.driverId) !== String(rel.driverId)) { chyba('Záznam musí patřit přihlášenému řidiči.'); continue; }
       if (o.coll === 'ridici') delete data.pin;                       // PINy se na serveru drží jen jako otisk
       if (o.coll === 'jizdy' && !jeMajitel) data.financni = staryData ? (staryData.financni || null) : null; // finance řidič nemění
       const nahrano = {};

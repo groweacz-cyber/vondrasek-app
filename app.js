@@ -307,6 +307,7 @@ function renderDashboard() {
   const isOwner = state.role === 'owner';
   const isDispecer = state.role === 'dispecer';
   const myJizdy = mojeJizdy();
+  const eonRidic = !!(sync.me && sync.me.eonRidic);          // přiřazená k trase 20001+ (Eon)
   const mojeTrasy = (sync.me && sync.me.mojeTrasy) || [];   // jen řidičova vlastní trasa/trasy PNS, nikdy cizí (viz api/sync.js → zjistiMojeTrasy)
   const kmCelkem = myJizdy.reduce((s,j) => s + (+j.km||0), 0);
   const litryCelkem = state.tankovani.reduce((s,t) => s + (+t.litry||0), 0);
@@ -325,7 +326,7 @@ function renderDashboard() {
       <div class="page-actions">
         <button class="btn btn-ghost btn-sm" id="btnDashAddJizda">+ Jízda</button>
         <button class="btn btn-ghost btn-sm" id="btnDashAddTank">+ Tankování</button>
-        ${!isOwner ? `<button class="btn btn-ghost btn-sm" id="btnDashAddObjizdka">📣 Objížďka</button>` : ''}
+        ${!isOwner && !(eonRidic && !mojeTrasy.length && !isDispecer) ? `<button class="btn btn-ghost btn-sm" id="btnDashAddObjizdka">📣 Objížďka</button>` : ''}
         ${isDispecer ? `
         <button class="btn btn-primary btn-sm" id="btnDashAddJizdaZaRidice">🚚 Jízda za řidiče</button>
         <button class="btn btn-primary btn-sm" id="btnDashAddTankZaRidice">⛽ Tankování za řidiče</button>
@@ -350,7 +351,7 @@ function renderDashboard() {
       <div class="metric"><div class="m-label">Najeté km</div><div class="m-value">${kmCelkem.toLocaleString('cs-CZ')}</div><div class="m-delta">▲ celkem</div></div>
       <div class="metric"><div class="m-label">Počet jízd</div><div class="m-value">${myJizdy.length}</div><div class="m-delta">▲ celkem</div></div>
       ${!isOwner ? `
-      <div class="metric"><div class="m-label">${mojeTrasy.length > 1 ? 'Tvoje trasy' : 'Tvoje trasa'}</div><div class="m-value">${mojeTrasy.length ? mojeTrasy.join(', ') : '—'}</div><div class="m-delta neutral">${mojeTrasy.length ? 'Malá doprava (PNS)' : 'zatím nepřiřazena'}</div></div>
+      <div class="metric"><div class="m-label">${mojeTrasy.length + (eonRidic ? 1 : 0) > 1 ? 'Tvoje trasy' : 'Tvoje trasa'}</div><div class="m-value">${mojeTrasy.length || eonRidic ? mojeTrasy.concat(eonRidic ? ['20001+ (Eon)'] : []).join(', ') : '—'}</div><div class="m-delta neutral">${mojeTrasy.length || eonRidic ? 'Malá doprava' : 'zatím nepřiřazena'}</div></div>
       ` : ''}
       ${isOwner ? `
       <div class="metric"><div class="m-label">Vozidla</div><div class="m-value">${state.vozidla.length}</div><div class="m-delta neutral">v systému</div></div>
@@ -359,6 +360,9 @@ function renderDashboard() {
       <div class="metric"><div class="m-label">Natankováno litrů</div><div class="m-value">${litryCelkem.toLocaleString('cs-CZ')}</div><div class="m-delta neutral">celkem</div></div>
       <div class="metric"><div class="m-label">Náklady PHM</div><div class="m-value">${nakladyPHM.toLocaleString('cs-CZ')} Kč</div><div class="m-delta neutral">celkem</div></div>
     </div>
+
+    ${!isOwner ? renderMojeZarazeni() : ''}
+    ${!isOwner && eonRidic ? renderEonKarta(eonDashMesic().year, eonDashMesic().month, 'dash') : ''}
 
     ${isOwner || isDispecer ? renderDnesekMalaDoprava() : ''}
     ${isOwner || isDispecer ? renderHlaseniObjizdekOwnerCard() : renderHlaseniObjizdekDriverCard()}
@@ -479,6 +483,42 @@ function zakazkaKarta(z) {
       </div>
     </div>
   `;
+}
+
+// Zařazení řidiče: kde teď jezdí (malá a/nebo velká doprava). Řidiči se na autech střídají a různé dny jezdí
+// různé dopravy, proto si to řidič (vedoucí dopravy) přepíná sám; majitel to mění v Řidičích.
+function renderMojeZarazeni() {
+  const ja = state.ridici.find(r => String(r.id) === String(state.driverId)) || {};
+  const stylL = 'display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;';
+  return `
+    <div class="card-panel" style="margin-bottom:20px;">
+      <h3>🔀 Moje zařazení</h3>
+      <p class="csub">Zaškrtni, kde teď jezdíš. Jarda to vidí v přehledu řidičů. Změnit to můžeš kdykoli, třeba když se vystřídáš na jiném autě.</p>
+      <div style="display:flex; gap:26px; flex-wrap:wrap; align-items:center;">
+        <label style="${stylL}"><input type="checkbox" id="zarMala" ${ja.malaDoprava ? 'checked' : ''} style="width:18px;height:18px;"> 📰 Malá doprava (PNS)</label>
+        <label style="${stylL}"><input type="checkbox" id="zarVelka" ${ja.velkaDoprava ? 'checked' : ''} style="width:18px;height:18px;"> 🚛 Velká doprava</label>
+        <span id="zarStav" style="font-size:12px; color:var(--muted);"></span>
+      </div>
+    </div>`;
+}
+function bindMojeZarazeni() {
+  const mala = document.getElementById('zarMala'), velka = document.getElementById('zarVelka');
+  if (!mala || !velka) return;
+  const stav = document.getElementById('zarStav');
+  const uloz = async () => {
+    stav.textContent = 'Ukládám…';
+    try {
+      await api('/api/profil', { method: 'POST', body: { malaDoprava: mala.checked, velkaDoprava: velka.checked } });
+      stav.textContent = 'Uloženo ✓';
+      synchronizuj();   // stáhne upravený záznam; lokálně ho neměníme, ať se nerozejde se serverem
+    } catch (e) {
+      const ja = state.ridici.find(r => String(r.id) === String(state.driverId)) || {};
+      mala.checked = !!ja.malaDoprava; velka.checked = !!ja.velkaDoprava;
+      stav.textContent = 'Nepodařilo se uložit: ' + (e.message || 'zkus to znovu');
+    }
+  };
+  mala.addEventListener('change', uloz);
+  velka.addEventListener('change', uloz);
 }
 
 // Karta "Malá doprava dnes" — kdo dnes jede kterou trasu (podle stálého řidiče a výjimek)
@@ -686,6 +726,8 @@ function bindDashboard() {
     document.querySelector('.nav-item[data-section="tankovani"]').click();
     openModal('tankModal');
   });
+  bindMojeZarazeni();
+  bindEon('dash');
   document.getElementById('btnDashAddObjizdka')?.addEventListener('click', openObjizdkaHlaseniModal);
   document.getElementById('btnDashAddJizdaZaRidice')?.addEventListener('click', openJizdaZaRidiceModal);
   document.getElementById('btnDashAddTankZaRidice')?.addEventListener('click', openTankovaniZaRidiceModal);
@@ -1506,22 +1548,38 @@ window.stazenoTachoDnes = function(id) {
 // ==========================================================
 // ŘIDIČI — CRUD + EDITACE
 // ==========================================================
+const RIDICI_FILTRY = [['vse', 'Všichni'], ['mala', '📰 Malá doprava'], ['velka', '🚛 Velká doprava'], ['eon', '🚐 Eon'], ['nezarazeno', 'Nezařazení']];
+function ridiciPodleFiltru(f) {
+  if (f === 'mala') return state.ridici.filter(r => r.malaDoprava);
+  if (f === 'velka') return state.ridici.filter(r => r.velkaDoprava);
+  if (f === 'eon') return state.ridici.filter(r => r.eon);
+  if (f === 'nezarazeno') return state.ridici.filter(r => !r.malaDoprava && !r.velkaDoprava && !r.eon);
+  return state.ridici;
+}
+window.setRidiciFilter = function(f) { window._ridiciFilter = f; renderSection('ridici'); };
+
 function renderRidici() {
+  const filtr = window._ridiciFilter || 'vse';
+  const seznam = ridiciPodleFiltru(filtr);
   return `
     <div class="page-head">
-      <div><h1>👷 Řidiči</h1><p>Seznam řidičů, karty, průkazy a jejich výkon.</p></div>
+      <div><h1>👷 Řidiči</h1><p>Seznam řidičů, kam jsou zařazení (malá / velká doprava), karty, průkazy a jejich výkon.</p></div>
       <div class="page-actions"><button class="btn btn-ghost" onclick="openPinDialog('owner','majitele')">🔑 PIN majitele</button><button class="btn btn-primary" id="btnAddRidic">+ Nový řidič</button></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+      ${RIDICI_FILTRY.map(([k, n]) => `<button class="btn ${filtr===k?'btn-primary':'btn-ghost'} btn-sm" onclick="setRidiciFilter('${k}')">${n} (${ridiciPodleFiltru(k).length})</button>`).join('')}
     </div>
     <div class="table-wrap">
       <table class="data-table">
         <thead><tr><th>Jméno</th><th>Telefon</th><th>Skupina</th><th style="text-align:right">Jízd</th><th style="text-align:right">km celkem</th><th style="text-align:right">Zisk</th><th>Karty</th><th>Stažení karty</th><th></th></tr></thead>
         <tbody>
-          ${state.ridici.length===0 ? `<tr><td colspan="9"><div class="empty-state"><div class="empty-ic">👷</div>Žádní řidiči — přidej prvního.</div></td></tr>` :
-          state.ridici.map(r=>{
+          ${seznam.length===0 ? `<tr><td colspan="9"><div class="empty-state"><div class="empty-ic">👷</div>${state.ridici.length===0 ? 'Žádní řidiči — přidej prvního.' : 'Žádný řidič v tomhle zařazení.'}</div></td></tr>` :
+          seznam.map(r=>{
             const stats = ridicStats(r);
             return `
             <tr>
-              <td><b>${r.jmeno}</b> ${r.vedouciDopravy ? '<span class="badge info" title="Vedoucí dopravy — zapisuje i za jiné řidiče, bez financí">🧭 vedoucí</span>' : ''}</td>
+              <td><b>${r.jmeno}</b> ${r.vedouciDopravy ? '<span class="badge info" title="Vedoucí dopravy — zapisuje i za jiné řidiče, bez financí">🧭 vedoucí</span>' : ''}
+                ${r.malaDoprava ? '<span class="badge ok" title="Jezdí malou dopravu">📰 Malá</span>' : ''}${r.velkaDoprava ? '<span class="badge warn" title="Jezdí velkou dopravu">🚛 Velká</span>' : ''}${r.eon ? '<span class="badge info" title="Trasa 20001+ (Eon)">🚐 Eon</span>' : ''}</td>
               <td><a href="tel:${r.telefon.replace(/\s/g,'')}" style="color:var(--cyan);">${r.telefon}</a></td>
               <td><span class="badge info">${r.skupina}</span></td>
               <td style="text-align:right">${stats.pocetJizd}</td>
@@ -1708,6 +1766,12 @@ function renderRidicModal(r={}) {
             <label for="ridicVedouciDopravy" style="margin:0;">🧭 Vedoucí dopravy</label>
           </div>
           <p style="font-size:11.5px; color:var(--dim); margin:-6px 0 14px;">Navíc k vlastní trase smí zapisovat jízdy, tankování a objížďky i za ostatní řidiče (bez přístupu k financím, cenám a nákladům).</p>
+          <div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin:6px 0 8px;">Zařazení (řidič si malou/velkou umí přepnout i sám ze svého přístupu)</div>
+          <div style="display:flex; gap:22px; flex-wrap:wrap; margin-bottom:14px;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="checkbox" name="malaDoprava" ${r.malaDoprava?'checked':''} style="width:18px;height:18px;"> 📰 Malá doprava</label>
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="checkbox" name="velkaDoprava" ${r.velkaDoprava?'checked':''} style="width:18px;height:18px;"> 🚛 Velká doprava</label>
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="checkbox" name="eon" ${r.eon?'checked':''} style="width:18px;height:18px;"> 🚐 Trasa 20001+ (Eon)</label>
+          </div>
           <div class="form-row">
             <label>PIN pro přihlášení do appky (4 číslice) ${r.id?'':'*'}</label>
             <input type="text" name="pin" inputmode="numeric" maxlength="4" ${r.id?'':'required'} value="" autocomplete="off" placeholder="${r.id?'nech prázdné = PIN se nemění':'např. 1234'}" style="letter-spacing:4px; font-weight:700;">
@@ -1800,7 +1864,7 @@ function bindRidici() {
         chyba.style.display = 'block'; return;
       }
     }
-    const data = { jmeno: fd.get('jmeno'), telefon: fd.get('telefon'), skupina: fd.get('skupina'), kartaRidice: fd.get('kartaRidice'), profesniPrukaz: fd.get('profesniPrukaz'), posledniStazeniKarty: fd.get('posledniStazeniKarty') || null, vedouciDopravy: fd.get('vedouciDopravy') === 'on' };
+    const data = { jmeno: fd.get('jmeno'), telefon: fd.get('telefon'), skupina: fd.get('skupina'), kartaRidice: fd.get('kartaRidice'), profesniPrukaz: fd.get('profesniPrukaz'), posledniStazeniKarty: fd.get('posledniStazeniKarty') || null, vedouciDopravy: fd.get('vedouciDopravy') === 'on', malaDoprava: fd.get('malaDoprava') === 'on', velkaDoprava: fd.get('velkaDoprava') === 'on', eon: fd.get('eon') === 'on' };
     if (editId) {
       const idx = state.ridici.findIndex(r=>r.id===+editId);
       if (idx>=0) {
@@ -2023,7 +2087,7 @@ function renderMalaDoprava() {
       </div>
     </div>
 
-    ${renderEonKarta(year, month, monthNames)}
+    ${renderEonKarta(year, month, 'mala')}
 
     <div class="card-panel" style="margin-bottom:20px;">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
@@ -2100,20 +2164,23 @@ function renderMalaDoprava() {
   `;
 }
 
-// Trasa 20001+ (Eon) — paušální, bez cen a řidiče: jen se zaškrtává, který den jela.
-// Ukládá se do pnsRouteConfig pod klíčem 'eon' ({ dny: { 'RRRR-MM-DD': true } }), mimo seznam PNS_ROUTES,
-// takže se nepočítá do ziskovosti ani do exportů PNS tras.
-function eonDny() {
-  const rec = state.pnsRouteConfig.eon;
-  return (rec && rec.dny) || {};
+// Trasa 20001+ (Eon) — paušální, bez cen: jen se zaškrtává, který den jela. Zapisuje ji k ní přiřazená řidička
+// (příznak "eon" u řidiče nastavuje majitel) i majitel. Kolekce eonDny = jeden záznam na měsíc ("RRRR-MM"),
+// mimo seznam PNS_ROUTES, takže se nepočítá do ziskovosti ani do exportů PNS tras.
+const EON_MESICE = ['Leden','Únor','Březen','Duben','Květen','Červen','Červenec','Srpen','Září','Říjen','Listopad','Prosinec'];
+let eonDashOffset = 0;
+function eonKlic(year, month) { return `${year}-${String(month + 1).padStart(2, '0')}`; }
+function eonDnyMesice(year, month) { const r = state.eonDny[eonKlic(year, month)]; return (r && r.dny) || {}; }
+function eonPocetDnuMesice(year, month) { return Object.keys(eonDnyMesice(year, month)).length; }
+function eonRidiciJmena() { return state.ridici.filter(r => r.eon).map(r => r.jmeno); }
+function eonDashMesic() {
+  const d = new Date(new Date().getFullYear(), new Date().getMonth() + eonDashOffset, 1);
+  return { year: d.getFullYear(), month: d.getMonth() };
 }
-function eonPocetDnuMesice(year, month) {
-  const pref = `${year}-${String(month + 1).padStart(2, '0')}-`;
-  return Object.keys(eonDny()).filter(k => k.startsWith(pref)).length;
-}
-function renderEonKarta(year, month, monthNames) {
+
+function renderEonKarta(year, month, ctx) {
   const dow = ['Po','Út','St','Čt','Pá','So','Ne'];
-  const dny = eonDny();
+  const dny = eonDnyMesice(year, month);
   const startOffset = (new Date(year, month, 1).getDay() + 6) % 7;
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   let cells = '';
@@ -2127,45 +2194,95 @@ function renderEonKarta(year, month, monthNames) {
       <input type="checkbox" class="eon-den" data-iso="${iso}" ${jela ? 'checked' : ''} style="width:18px; height:18px;">
     </label>`;
   }
+  const jmena = ctx === 'mala' ? eonRidiciJmena() : [];
   return `
     <div class="card-panel" style="margin-bottom:20px;" id="eonKarta">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:6px;">
         <div>
           <h3 style="margin-bottom:4px;">🚐 Trasa 20001+ (Eon) — paušál</h3>
-          <p class="csub" style="margin-bottom:0;">Zaškrtni dny, kdy trasa jela. Nic jiného se nezadává.</p>
+          <p class="csub" style="margin-bottom:0;">Zaškrtni dny, kdy trasa jela. Nic jiného se nezadává.${ctx === 'mala' ? (jmena.length ? ` Své dny zadává ${jmena.join(', ')}.` : ' Zatím k ní není přiřazen žádný řidič (v Řidiči → Upravit).') : ''}</p>
         </div>
-        <div style="display:flex; align-items:center; gap:8px;">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           <button class="btn btn-ghost btn-sm" id="btnEonPred">←</button>
-          <b>${monthNames[month]} ${year}</b>
+          <b>${EON_MESICE[month]} ${year}</b>
           <button class="btn btn-ghost btn-sm" id="btnEonDal">→</button>
+          ${ctx === 'mala' ? `<button class="btn btn-ghost btn-sm" id="btnEonTisk">🖨️ Tisk / PDF za měsíc</button>` : ''}
         </div>
       </div>
       <div class="cal-grid" id="eonKalendar">
         ${dow.map(x => `<div class="cal-dow">${x}</div>`).join('')}
         ${cells}
       </div>
-      <p style="margin:12px 0 0; font-size:13px;">Jela <b id="eonPocet">${eonPocetDnuMesice(year, month)}</b> dní v měsíci ${monthNames[month].toLowerCase()}.</p>
+      <p style="margin:12px 0 0; font-size:13px;">Jela <b id="eonPocet">${eonPocetDnuMesice(year, month)}</b> dní v měsíci ${EON_MESICE[month].toLowerCase()}.</p>
     </div>
   `;
 }
-function bindEon() {
+
+function bindEon(ctx) {
   const kal = document.getElementById('eonKalendar');
   if (!kal) return;
-  document.getElementById('btnEonPred').addEventListener('click', () => { malaDopravaMonthOffset--; renderSection('mala-doprava'); });
-  document.getElementById('btnEonDal').addEventListener('click', () => { malaDopravaMonthOffset++; renderSection('mala-doprava'); });
+  const mesic = () => ctx === 'dash' ? eonDashMesic() : malaDopravaAktualniMesic();
+  const posun = (d) => {
+    if (ctx === 'dash') eonDashOffset += d; else malaDopravaMonthOffset += d;
+    renderSection(ctx === 'dash' ? 'dashboard' : 'mala-doprava');
+  };
+  document.getElementById('btnEonPred').addEventListener('click', () => posun(-1));
+  document.getElementById('btnEonDal').addEventListener('click', () => posun(1));
+  document.getElementById('btnEonTisk')?.addEventListener('click', () => { const { year, month } = mesic(); tiskEonMesic(year, month); });
   kal.addEventListener('change', (e) => {
     const cb = e.target.closest('.eon-den'); if (!cb) return;
-    const rec = state.pnsRouteConfig.eon || (state.pnsRouteConfig.eon = { dny: {} });
-    if (!rec.dny) rec.dny = {};
+    const klic = cb.dataset.iso.slice(0, 7);
+    const rec = state.eonDny[klic] || (state.eonDny[klic] = { dny: {} });
     if (cb.checked) rec.dny[cb.dataset.iso] = true; else delete rec.dny[cb.dataset.iso];
+    if (!Object.keys(rec.dny).length) delete state.eonDny[klic];
     const lab = cb.closest('label');
     lab.style.borderColor = cb.checked ? 'var(--green)' : '';
     lab.style.background = cb.checked ? 'rgba(16,185,129,0.12)' : '';
-    const { year, month } = malaDopravaAktualniMesic();
+    const { year, month } = mesic();
     document.getElementById('eonPocet').textContent = eonPocetDnuMesice(year, month);
     saveState();
   });
 }
+
+// Tiskový výkaz Eonu za měsíc (majitel ho uloží do PDF v tiskovém dialogu prohlížeče)
+function eonTiskHtml(year, month) {
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const dny = eonDnyMesice(year, month);
+  const pocet = Object.keys(dny).length;
+  const n = new Date(year, month + 1, 0).getDate();
+  const dnyTydne = ['neděle', 'pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota'];
+  const jmena = eonRidiciJmena().join(', ') || '—';
+  let radky = '';
+  for (let d = 1; d <= n; d++) {
+    const dt = new Date(year, month, d), iso = toISO(dt), jela = !!dny[iso];
+    radky += `<tr class="${jela ? 'jela' : ''} ${dt.getDay() === 0 ? 'ne' : ''}"><td>${d}. ${month + 1}. ${year}</td><td>${dnyTydne[dt.getDay()]}</td><td class="c">${jela ? '✔ jela' : ''}</td></tr>`;
+  }
+  return `<!doctype html><html lang="cs"><head><meta charset="utf-8"><title>Eon ${EON_MESICE[month]} ${year}</title>
+<style>
+  @page { size: A4; margin: 16mm; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #111; font-size: 12px; }
+  h1 { font-size: 20px; margin: 0 0 4px; } .sub { color: #555; margin-bottom: 14px; }
+  .meta { display: flex; gap: 30px; margin-bottom: 14px; } .meta b { display: block; font-size: 11px; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+  table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #bbb; padding: 4px 8px; text-align: left; }
+  th { background: #eee; } .c { text-align: center; } tr.jela td { font-weight: 700; background: #e6f4ea; } tr.ne td { color: #888; }
+  .sum { margin-top: 14px; font-size: 14px; } .sign { display: flex; justify-content: space-between; margin-top: 46px; } .sign div { width: 44%; border-top: 1px solid #111; padding-top: 4px; font-size: 11px; color: #555; }
+</style></head><body>
+<h1>Trasa 20001+ (Eon) — výkaz dnů</h1>
+<div class="sub">Autodoprava Vondrášek, s.r.o. · paušální trasa</div>
+<div class="meta"><div><b>Měsíc</b>${EON_MESICE[month]} ${year}</div><div><b>Řidič</b>${esc(jmena)}</div></div>
+<table><thead><tr><th>Datum</th><th>Den</th><th class="c">Trasa jela</th></tr></thead><tbody>${radky}</tbody></table>
+<div class="sum">Počet dní, kdy trasa jela: <b>${pocet}</b></div>
+<div class="sign"><div>Podpis řidiče</div><div>Schválil (majitel)</div></div>
+</body></html>`;
+}
+window.tiskEonMesic = function (year, month) {
+  const f = document.createElement('iframe');
+  f.style.cssText = 'position:fixed; right:0; bottom:0; width:0; height:0; border:0;';
+  document.body.appendChild(f);
+  const d = f.contentWindow.document;
+  d.open(); d.write(eonTiskHtml(year, month)); d.close();
+  setTimeout(() => { f.contentWindow.focus(); f.contentWindow.print(); setTimeout(() => f.remove(), 2000); }, 300);
+};
 
 function renderMalaDopravaCalendar(year, month) {
   const dow = ['Po','Út','St','Čt','Pá','So','Ne'];
@@ -2702,7 +2819,7 @@ function bindMalaDoprava() {
   document.getElementById('btnExportMalaVyjimky').addEventListener('click', exportMalaDopravaVyjimkyCSV);
   document.getElementById('btnExportVicenaklady').addEventListener('click', exportVicenakladyObjizdekCSV);
   bindHromadnaObjizdka();
-  bindEon();
+  bindEon('mala');
 }
 
 // Aktuálně zobrazený měsíc v kalendáři malé dopravy (rok, měsíc 0-11, počet dní)
