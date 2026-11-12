@@ -352,12 +352,7 @@ function renderDashboard() {
       <p class="csub">Přes „+ Jízda", „+ Tankování" a „📣 Objížďka" (nahoře) i přes stránky Evidence jízd a Tankování zapisuješ záznam vždy za konkrétního řidiče — vyber ho v poli <b>Řidič</b> ve formuláři (nabízí všechny, ne jen tebe). Finance, ceny a náklady nevidíš ani nezadáváš — to zůstává jen pro majitele.</p>
     </div>` : ''}
 
-    ${isOwner && sync.me && sync.me.mustChangePin ? `
-    <div class="card-panel" style="margin-bottom:20px; border-color:var(--amber);">
-      <h3>⚠️ Změň si PIN majitele</h3>
-      <p class="csub">Výchozí PIN není tajný (byl dřív veřejně v kódu appky). Nastav si vlastní, ať se k datům nedostane nikdo cizí.</p>
-      <button class="btn btn-primary btn-sm" onclick="openPinDialog('owner','majitele')">🔑 Změnit PIN</button>
-    </div>` : ''}
+    ${isOwner ? renderTerminyKarta() : ''}
 
     ${isOwner ? renderBusinessKarta() : ''}
 
@@ -782,6 +777,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 23, datum: '2026-11-12', text: 'Kompletní přehled: místo upozornění na PIN je Hlídač termínů. Přibyl měsíční termín Zaslání faktury PNS a.s. (jízdy a Eon svozy) s extra poznámkou k listopadu.' },
   { id: 22, datum: '2026-11-12', text: 'Výkaz trasy 20001+ k tisku / PDF je podklad pro plátce: cena 250 Kč za den, celkem k úhradě, bez jména řidiče.' },
   { id: 21, datum: '2026-11-12', text: 'Export objížděk i jako přehledný PDF výkaz (souhrn po trasách a seznam objížděk za měsíc).' },
   { id: 20, datum: '2026-11-12', text: 'Dashboard přejmenován na Kompletní přehled. Malá doprava: tlačítko Export objížděk (výběr měsíce, jen trasy PNS). Z tisku a exportů je pryč vše mimo samotná data.' },
@@ -870,19 +866,49 @@ function aktualizujTerminyBadge() {
   b.hidden = n === 0; b.textContent = n;
 }
 
+// Štítek stavu termínu (po termínu / dnes / brzy / později / splněno)
+function terminBadge(x) {
+  if (!x.due) return '<span class="badge ok">Splněno</span>';
+  if (x.dny < 0) return `<span class="badge err">Po termínu o ${-x.dny} ${-x.dny === 1 ? 'den' : 'dní'}</span>`;
+  if (x.dny === 0) return '<span class="badge err">Dnes</span>';
+  if (x.urgent) return `<span class="badge warn">Za ${x.dny} ${x.dny === 1 ? 'den' : x.dny < 5 ? 'dny' : 'dní'}</span>`;
+  return `<span class="badge info">Za ${x.dny} dní</span>`;
+}
+// Extra poznámka jen k měsíci nejbližšího termínu (např. "u listopadové faktury ještě…")
+function terminExtraPoznamka(t, due) { return due && t.poznamky && t.poznamky[due.slice(0, 7)] ? t.poznamky[due.slice(0, 7)] : ''; }
+
+// Karta Hlídače termínů na hlavní stránce majitele (Kompletní přehled)
+function renderTerminyKarta() {
+  const radky = (state.terminy || []).map(t => ({ t, ...terminStav(t) })).filter(x => x.due);
+  radky.sort((a, b) => a.due.localeCompare(b.due));
+  const nejblizsi = radky.slice(0, 6);
+  return `
+    <div class="card-panel" style="margin-bottom:16px; border-color:${radky.some(x => x.urgent) ? 'var(--amber)' : 'var(--border-c)'};" id="terminyKarta">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
+        <h3 style="margin:0; font-size:15px;">⏰ Hlídač termínů</h3>
+        <button class="btn btn-ghost btn-sm" onclick="document.querySelector('.nav-item[data-section=terminy]').click()">Otevřít Hlídač termínů</button>
+      </div>
+      ${nejblizsi.length ? nejblizsi.map(x => {
+        const extra = terminExtraPoznamka(x.t, x.due);
+        return `<div style="display:flex; align-items:center; gap:12px; padding:9px 12px; background:var(--card); border-radius:var(--radius-sm); margin-bottom:6px; border-left:3px solid ${x.dny < 0 ? 'var(--red)' : x.urgent ? 'var(--amber)' : 'var(--border-c)'};">
+          <div style="flex:1; min-width:0; font-size:13px;"><b>${x.t.nazev}</b> <span style="color:var(--muted);">· ${formatDate(x.due)}</span>
+            ${x.t.poznamka ? `<div style="color:var(--muted); font-size:12px; margin-top:2px;">${x.t.poznamka}</div>` : ''}
+            ${extra ? `<div style="color:var(--amber); font-size:12.5px; margin-top:3px;">📌 ${extra}</div>` : ''}
+          </div>
+          ${terminBadge(x)}
+          <button class="btn btn-primary btn-sm" onclick="terminSplnen(${x.t.id})">✓ Splněno</button>
+        </div>`;
+      }).join('') : `<div class="empty-state" style="padding:10px;">Zatím žádné termíny — přidej je v Hlídači termínů.</div>`}
+    </div>`;
+}
+
 function terminPopis(t) {
   return t.typ === 'jednorazovy' ? 'jednorázově' : `každý měsíc k ${t.den}.`;
 }
 function renderTerminy() {
   const radky = (state.terminy || []).map(t => ({ t, ...terminStav(t) }));
   radky.sort((a, b) => (a.due === null) - (b.due === null) || String(a.due).localeCompare(String(b.due)));
-  const badge = (x) => {
-    if (!x.due) return '<span class="badge ok">Splněno</span>';
-    if (x.dny < 0) return `<span class="badge err">Po termínu o ${-x.dny} ${-x.dny === 1 ? 'den' : 'dní'}</span>`;
-    if (x.dny === 0) return '<span class="badge err">Dnes</span>';
-    if (x.urgent) return `<span class="badge warn">Za ${x.dny} ${x.dny === 1 ? 'den' : x.dny < 5 ? 'dny' : 'dní'}</span>`;
-    return `<span class="badge info">Za ${x.dny} dní</span>`;
-  };
+  const badge = terminBadge;
   return `
     <div class="page-head">
       <div><h1>⏰ Hlídač termínů</h1><p>Opakované i jednorázové termíny (fakturace a podobně). Blížící se a prošlé se ukazují v Upozornění na dashboardu.</p></div>
@@ -893,7 +919,7 @@ function renderTerminy() {
         <thead><tr><th>Termín</th><th>Opakování</th><th>Nejbližší</th><th>Stav</th><th></th></tr></thead>
         <tbody>
           ${radky.length ? radky.map(x => `<tr style="${!x.due ? 'opacity:0.6;' : ''}">
-            <td><b>${x.t.nazev}</b>${x.t.poznamka ? `<div style="font-size:12px; color:var(--muted);">${x.t.poznamka}</div>` : ''}</td>
+            <td><b>${x.t.nazev}</b>${x.t.poznamka ? `<div style="font-size:12px; color:var(--muted);">${x.t.poznamka}</div>` : ''}${terminExtraPoznamka(x.t, x.due) ? `<div style="font-size:12.5px; color:var(--amber); margin-top:3px;">📌 ${terminExtraPoznamka(x.t, x.due)}</div>` : ''}</td>
             <td>${terminPopis(x.t)}${x.t.predem !== undefined && x.t.predem !== '' ? `<div style="font-size:11.5px; color:var(--muted);">upozornit ${x.t.predem} dní předem</div>` : ''}</td>
             <td>${x.due ? formatDate(x.due) : '—'}</td>
             <td>${badge(x)}</td>
@@ -912,7 +938,7 @@ window.terminSplnen = function(id) {
   const t = state.terminy.find(x => x.id === id); if (!t) return;
   const due = terminDalsi(t); if (!due) return;
   if (t.typ === 'jednorazovy') t.hotovo = true; else { t.splneno = t.splneno || {}; t.splneno[due.slice(0, 7)] = true; }
-  saveState(); renderSection('terminy');
+  saveState(); renderSection(aktualniSekceNazev('terminy'));
 };
 window.terminSmazat = function(id) {
   const t = state.terminy.find(x => x.id === id); if (!t) return;
@@ -943,6 +969,7 @@ window.openTerminModal = function(id) {
           <div class="form-row"><label>Upozornit předem (dní)</label><input type="number" name="predem" min="0" max="60" value="${t.predem === undefined ? 3 : t.predem}"></div>
         </div>
         <div class="form-row"><label>Poznámka</label><input type="text" name="poznamka" value="${hAttr(t.poznamka)}" placeholder="nepovinné"></div>
+        <div class="form-row"><label>Extra poznámka jen k nejbližšímu termínu</label><input type="text" name="extra" value="${hAttr(terminExtraPoznamka(t, terminDalsi(t)))}" placeholder="např. u této faktury ještě…"></div>
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" onclick="document.getElementById('terminModal').remove()">Zrušit</button>
           <button type="submit" class="btn btn-primary">${t.id ? 'Uložit' : 'Přidat termín'}</button>
@@ -964,10 +991,16 @@ window.openTerminModal = function(id) {
       den: f.typ.value === 'mesicni' ? Math.min(31, Math.max(1, +f.den.value || 1)) : undefined,
       datum: f.typ.value === 'jednorazovy' ? f.datum.value : undefined
     };
+    const extra = f.extra.value.trim();
+    const sPoznamkou = (zaznam) => {
+      const due = terminDalsi(zaznam), poznamky = { ...(zaznam.poznamky || {}) };
+      if (due) { if (extra) poznamky[due.slice(0, 7)] = extra; else delete poznamky[due.slice(0, 7)]; }
+      return { ...zaznam, poznamky };
+    };
     if (t.id) {
       const i = state.terminy.findIndex(x => x.id === t.id);
-      if (i >= 0) { const stary = state.terminy[i]; state.terminy[i] = { ...stary, ...data, splneno: stary.splneno, hotovo: data.typ === 'jednorazovy' && data.datum === stary.datum ? stary.hotovo : false }; }
-    } else state.terminy.push({ id: Date.now(), ...data, splneno: {} });
+      if (i >= 0) { const stary = state.terminy[i]; state.terminy[i] = sPoznamkou({ ...stary, ...data, splneno: stary.splneno, hotovo: data.typ === 'jednorazovy' && data.datum === stary.datum ? stary.hotovo : false }); }
+    } else state.terminy.push(sPoznamkou({ id: Date.now(), ...data, splneno: {} }));
     saveState(); renderSection('terminy');
   });
 };
