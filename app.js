@@ -367,6 +367,8 @@ function renderDashboard() {
     ${isOwner || isDispecer ? renderDnesekMalaDoprava() : ''}
     ${isOwner || isDispecer ? renderHlaseniObjizdekOwnerCard() : renderHlaseniObjizdekDriverCard()}
 
+    ${renderJizdyPoMesicich(isOwner || isDispecer)}
+
     <!-- GRAF -->
     <div class="card-panel" style="margin-bottom:20px;">
       <h3>📊 Najeté km — posledních 6 měsíců</h3>
@@ -449,6 +451,55 @@ function renderZalohaStatus() {
     return `<div class="badge warn">⚠️ Poslední záloha ${datumText} (${predText}) — je čas na novou</div>`;
   }
   return `<p style="font-size:12.5px; color:var(--muted);">Poslední záloha: ${datumText} (${predText})</p>`;
+}
+
+// Počet jízd za každý kalendářní měsíc (od prvního měsíce s jízdou po aktuální, nejnovější nahoře).
+// Řidič vidí svoje, majitel a vedoucí dopravy všechny a mohou si vybrat jednoho řidiče.
+function jizdyMesiceRadky() {
+  let list = mojeJizdy();
+  const f = window._jizdyMesiceRidic;
+  if (f && f !== 'vse') list = list.filter(j => String(j.driverId) === f);
+  const map = {};
+  list.forEach(j => {
+    const k = String(j.datum || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(k)) return;
+    const m = map[k] || (map[k] = { pocet: 0, km: 0 });
+    m.pocet++; m.km += +j.km || 0;
+  });
+  const now = new Date();
+  const prvni = Object.keys(map).sort()[0] || toISO(now).slice(0, 7);
+  const mesice = ['Leden','Únor','Březen','Duben','Květen','Červen','Červenec','Srpen','Září','Říjen','Listopad','Prosinec'];
+  let html = '', d = new Date(now.getFullYear(), now.getMonth(), 1);
+  for (let i = 0; i < 36; i++) {
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (k < prvni) break;
+    const m = map[k] || { pocet: 0, km: 0 };
+    html += `<tr><td>${mesice[d.getMonth()]} ${d.getFullYear()}</td><td style="text-align:right"><b>${m.pocet}</b></td><td style="text-align:right">${m.km.toLocaleString('cs-CZ')} km</td></tr>`;
+    d = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  }
+  return html;
+}
+function renderJizdyPoMesicich(vidiVsechny) {
+  const f = window._jizdyMesiceRidic || 'vse';
+  return `
+    <div class="card-panel" style="margin-bottom:20px;" id="jizdyMesiceKarta">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <div>
+          <h3 style="margin-bottom:4px;">📅 Počet jízd po měsících</h3>
+          <p class="csub" style="margin-bottom:0;">${vidiVsechny ? 'Jízdy z Evidence jízd za každý kalendářní měsíc.' : 'Tvoje jízdy za každý kalendářní měsíc.'}</p>
+        </div>
+        ${vidiVsechny ? `<select id="jizdyMesiceRidic" style="max-width:240px;">
+          <option value="vse">Všichni řidiči</option>
+          ${state.ridici.map(r => `<option value="${r.id}" ${String(r.id) === f ? 'selected' : ''}>${r.jmeno}</option>`).join('')}
+        </select>` : ''}
+      </div>
+      <div style="max-height:320px; overflow-y:auto; margin-top:10px;">
+        <table class="data-table">
+          <thead><tr><th>Měsíc</th><th style="text-align:right">Počet jízd</th><th style="text-align:right">Najeto</th></tr></thead>
+          <tbody id="jizdyMesiceBody">${jizdyMesiceRadky()}</tbody>
+        </table>
+      </div>
+    </div>`;
 }
 
 function kmPoslednich6Mesicu(jizdy) {
@@ -712,6 +763,10 @@ function oznamNoveHlaseniObjizdek(noveZaznamy) {
 }
 
 function bindDashboard() {
+  document.getElementById('jizdyMesiceRidic')?.addEventListener('change', (e) => {
+    window._jizdyMesiceRidic = e.target.value;
+    document.getElementById('jizdyMesiceBody').innerHTML = jizdyMesiceRadky();
+  });
   document.getElementById('dnesMalaDopravaCard')?.addEventListener('click', () => {
     document.querySelector('.nav-item[data-section="mala-doprava"]').click();
   });
