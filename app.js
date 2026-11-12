@@ -466,6 +466,19 @@ function jizdyMesiceRadky() {
     const m = map[k] || (map[k] = { pocet: 0, km: 0 });
     m.pocet++; m.km += +j.km || 0;
   });
+  // Dny trasy 20001+ (Eon) se počítají jako jízdy (řidička je zaškrtává v kalendáři, ne v Evidenci jízd)
+  const fid = f && f !== 'vse' ? f : null;
+  const zahrnoutEon = state.role === 'owner'
+    ? (!fid || !!(state.ridici.find(r => String(r.id) === fid) || {}).eon)
+    : !!(sync.me && sync.me.eonRidic) && (!fid || fid === String(state.driverId));
+  if (zahrnoutEon) {
+    Object.entries(state.eonDny || {}).forEach(([k, rec]) => {
+      const n = Object.keys((rec && rec.dny) || {}).length;
+      if (!n || !/^\d{4}-\d{2}$/.test(k)) return;
+      const m = map[k] || (map[k] = { pocet: 0, km: 0 });
+      m.pocet += n; m.eon = n;
+    });
+  }
   const now = new Date();
   const prvni = Object.keys(map).sort()[0] || toISO(now).slice(0, 7);
   const mesice = ['Leden','Únor','Březen','Duben','Květen','Červen','Červenec','Srpen','Září','Říjen','Listopad','Prosinec'];
@@ -474,7 +487,7 @@ function jizdyMesiceRadky() {
     const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     if (k < prvni) break;
     const m = map[k] || { pocet: 0, km: 0 };
-    html += `<tr><td>${mesice[d.getMonth()]} ${d.getFullYear()}</td><td style="text-align:right"><b>${m.pocet}</b></td><td style="text-align:right">${m.km.toLocaleString('cs-CZ')} km</td></tr>`;
+    html += `<tr><td>${mesice[d.getMonth()]} ${d.getFullYear()}</td><td style="text-align:right"><b>${m.pocet}</b>${m.eon ? ` <span style="color:var(--muted); font-size:11.5px;">(z toho ${m.eon} dní Eon)</span>` : ''}</td><td style="text-align:right">${m.km.toLocaleString('cs-CZ')} km</td></tr>`;
     d = new Date(d.getFullYear(), d.getMonth() - 1, 1);
   }
   return html;
@@ -486,7 +499,7 @@ function renderJizdyPoMesicich(vidiVsechny) {
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
         <div>
           <h3 style="margin-bottom:4px;">📅 Počet jízd po měsících</h3>
-          <p class="csub" style="margin-bottom:0;">${vidiVsechny ? 'Jízdy z Evidence jízd za každý kalendářní měsíc.' : 'Tvoje jízdy za každý kalendářní měsíc.'}</p>
+          <p class="csub" style="margin-bottom:0;">${vidiVsechny ? 'Jízdy z Evidence jízd a dny trasy Eon za každý kalendářní měsíc.' : 'Tvoje jízdy (u trasy Eon i zaškrtnuté dny) za každý kalendářní měsíc.'}</p>
         </div>
         ${vidiVsechny ? `<select id="jizdyMesiceRidic" style="max-width:240px;">
           <option value="vse">Všichni řidiči</option>
@@ -2322,6 +2335,8 @@ function bindEon(ctx) {
     const { year, month } = mesic();
     document.getElementById('eonPocet').textContent = eonPocetDnuMesice(year, month);
     document.getElementById('eonCastka').textContent = kcFmt(eonCastkaMesice(year, month));
+    const mesice = document.getElementById('jizdyMesiceBody');   // přehled jízd na dashboardu se přepočítá hned
+    if (mesice) mesice.innerHTML = jizdyMesiceRadky();
     saveState();
   });
 }
