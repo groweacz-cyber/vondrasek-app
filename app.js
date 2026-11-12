@@ -779,6 +779,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 26, datum: '2026-11-12', text: 'Asistentka dostala tvář (video) a ženský hlas: při otevření pozdraví a odpovědi čte nahlas (zvuk jde vypnout 🔊).' },
   { id: 25, datum: '2026-11-12', text: 'Horní lišta: digitální čas, datum a počasí v Dolním Třeboníně; zvoneček s popiskem; upozornění z Hlídače termínů s červeným připínáčkem a vykřičníkem.' },
   { id: 24, datum: '2026-11-12', text: 'AI asistentka (💬 vpravo dole): radí se systémem a ví, co kde je a jak se co počítá. Zapne se po vložení klíče GROQ_API_KEY do Vercelu.' },
   { id: 23, datum: '2026-11-12', text: 'Kompletní přehled: místo upozornění na PIN je Hlídač termínů. Přibyl měsíční termín Zaslání faktury PNS a.s. (jízdy a Eon svozy) s extra poznámkou k listopadu.' },
@@ -865,23 +866,60 @@ function spustCasPocasi() {
   pocasi(); setInterval(pocasi, 15 * 60 * 1000);
 }
 
+// Hlas asistentky: ženský český hlas prohlížeče (Web Speech), text se čte po větách; video se přehrává jen, když mluví
+let asistentkaHlasZapnut = (() => { try { return localStorage.getItem('vondrasek_asist_hlas') !== '0'; } catch (e) { return true; } })();
+function asistentkaVyberHlas() {
+  const hlasy = (window.speechSynthesis && speechSynthesis.getVoices()) || [];
+  const cs = hlasy.filter(v => /^cs([-_]|$)/i.test(v.lang));
+  return cs.find(v => /vlasta|zuzana|iveta|jana|eliška|female|žena/i.test(v.name)) || cs[0] || null;
+}
+function asistentkaTextKRecitaci(text) {
+  return String(text).replace(/\*\*/g, '').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}✅❌️]/gu, '').replace(/^\s*[-•]\s+/gm, '').replace(/([:;,.!?])[ \t]*\n+/g, '$1 ').replace(/\n+/g, '. ').replace(/\s{2,}/g, ' ').trim();
+}
+function asistentkaMluv(text, video) {
+  if (!asistentkaHlasZapnut || !window.speechSynthesis) return;
+  speechSynthesis.cancel();
+  const vety = (asistentkaTextKRecitaci(text).match(/[^.!?]+[.!?]*/g) || []).map(v => v.trim()).filter(Boolean);
+  if (!vety.length) return;
+  const hlas = asistentkaVyberHlas();
+  let zbyva = vety.length;
+  const hotovo = () => { if (--zbyva <= 0) { video.pause(); video.currentTime = 0; } };
+  vety.forEach((v, i) => {
+    const u = new SpeechSynthesisUtterance(v);
+    u.lang = 'cs-CZ'; if (hlas) u.voice = hlas; u.rate = 1; u.pitch = hlas && /jakub/i.test(hlas.name) ? 1.4 : 1.1;   // mužský hlas (Jakub) posunutý výš, ženský (např. Vlasta v Edge) beze změny
+    if (i === 0) u.onstart = () => { video.loop = true; video.play().catch(() => {}); };
+    u.onend = hotovo; u.onerror = hotovo;
+    speechSynthesis.speak(u);
+  });
+}
+function asistentkaPozdrav() {
+  const h = new Date().getHours();
+  const cas = h < 9 ? 'Dobré ráno' : h < 12 ? 'Dobré dopoledne' : h < 18 ? 'Dobré odpoledne' : 'Dobrý večer';
+  return `${cas}, Jardo! Jsem vaše asistentka systému. Zeptejte se mě, kde co najdete nebo jak se něco dělá. Čísla ze systému ale nevidím.`;
+}
+
 function inicializujAsistentku() {
   const stare = document.getElementById('asistentkaWrap');
   if (state.role !== 'owner') { if (stare) stare.remove(); return; }
   if (stare) return;
   document.body.insertAdjacentHTML('beforeend', `
     <div id="asistentkaWrap">
-      <button class="asist-btn" id="asistentkaBtn" aria-label="Asistentka">💬 Asistentka</button>
+      <button class="asist-btn" id="asistentkaBtn" aria-label="Asistentka"><img src="asistentka.jpg" alt=""><span>Asistentka</span></button>
       <div class="asist-panel" id="asistentkaPanel" hidden>
-        <div class="asist-head"><b>💬 Asistentka</b><span>poradí se systémem</span><button id="asistentkaZavrit" aria-label="Zavřít">✕</button></div>
+        <div class="asist-video"><video id="asistentkaVideo" src="asistentka.mp4" poster="asistentka.jpg" muted playsinline preload="auto"></video>
+          <div class="asist-lista"><b>Asistentka</b><span>poradí se systémem</span>
+            <button id="asistentkaHlas" aria-label="Hlas zapnout/vypnout" title="Hlas">${asistentkaHlasZapnut ? '🔊' : '🔇'}</button>
+            <button id="asistentkaZavrit" aria-label="Zavřít">✕</button></div></div>
         <div class="asist-log" id="asistentkaLog"></div>
         <div class="asist-navrhy" id="asistentkaNavrhy">${ASISTENTKA_NAVRHY.map(n => `<button type="button">${n}</button>`).join('')}</div>
-        <form class="asist-form" id="asistentkaForm"><input type="text" id="asistentkaInput" placeholder="Zeptej se na cokoli kolem systému…" autocomplete="off" maxlength="500"><button type="submit">Poslat</button></form>
+        <form class="asist-form" id="asistentkaForm"><input type="text" id="asistentkaInput" placeholder="Zeptejte se na cokoli kolem systému…" autocomplete="off" maxlength="500"><button type="submit">Poslat</button></form>
       </div>
     </div>`);
   const panel = document.getElementById('asistentkaPanel'), log = document.getElementById('asistentkaLog'), input = document.getElementById('asistentkaInput');
+  const video = document.getElementById('asistentkaVideo');
+  video.muted = true;   // video je jen animace, zvuk je vypnutý (soubor ho ani neobsahuje)
   const pridej = (role, text) => { const d = document.createElement('div'); d.className = 'asist-msg ' + role; d.innerHTML = asistentkaHtml(text); log.appendChild(d); log.scrollTop = log.scrollHeight; return d; };
-  pridej('bot', 'Ahoj Jardo, jsem asistentka systému. Zeptej se, kde co najdeš nebo jak něco udělat. Čísla ani data ze systému nevidím.');
+  let pozdraveno = false;
   const posli = async (dotaz) => {
     dotaz = dotaz.trim(); if (!dotaz) return;
     document.getElementById('asistentkaNavrhy').hidden = true;
@@ -892,17 +930,31 @@ function inicializujAsistentku() {
       const odp = await api('/api/asistentka', { method: 'POST', body: { messages: asistentkaZpravy, novinky: UPDATES.slice(0, 25).map(u => formatDate(u.datum) + ': ' + u.text) } });
       ceka.classList.remove('ceka'); ceka.innerHTML = asistentkaHtml(odp.reply);
       asistentkaZpravy.push({ role: 'assistant', content: odp.reply });
+      asistentkaMluv(odp.reply, video);
     } catch (e) {
       ceka.classList.remove('ceka'); ceka.classList.add('chyba'); ceka.textContent = e.message || 'Asistentka se teď nemůže ozvat.';
       asistentkaZpravy.pop();
     }
     log.scrollTop = log.scrollHeight;
   };
-  document.getElementById('asistentkaBtn').addEventListener('click', () => { panel.hidden = !panel.hidden; if (!panel.hidden) input.focus(); });
-  document.getElementById('asistentkaZavrit').addEventListener('click', () => { panel.hidden = true; });
+  document.getElementById('asistentkaBtn').addEventListener('click', () => {
+    panel.hidden = !panel.hidden;
+    if (panel.hidden) { if (window.speechSynthesis) speechSynthesis.cancel(); video.pause(); return; }
+    input.focus();
+    if (!pozdraveno) { pozdraveno = true; const t = asistentkaPozdrav(); pridej('bot', t); asistentkaMluv(t, video); }
+  });
+  document.getElementById('asistentkaZavrit').addEventListener('click', () => { panel.hidden = true; if (window.speechSynthesis) speechSynthesis.cancel(); video.pause(); });
+  document.getElementById('asistentkaHlas').addEventListener('click', (e) => {
+    asistentkaHlasZapnut = !asistentkaHlasZapnut;
+    try { localStorage.setItem('vondrasek_asist_hlas', asistentkaHlasZapnut ? '1' : '0'); } catch (err) {}
+    e.target.textContent = asistentkaHlasZapnut ? '🔊' : '🔇';
+    if (!asistentkaHlasZapnut && window.speechSynthesis) { speechSynthesis.cancel(); video.pause(); }
+  });
   document.getElementById('asistentkaForm').addEventListener('submit', (e) => { e.preventDefault(); posli(input.value); });
   document.getElementById('asistentkaNavrhy').addEventListener('click', (e) => { if (e.target.tagName === 'BUTTON') posli(e.target.textContent); });
+  if (window.speechSynthesis) speechSynthesis.getVoices();   // načtení seznamu hlasů
 }
+
 
 // ==========================================================
 // HLÍDAČ TERMÍNŮ — opakované (každý měsíc k určitému dni) i jednorázové termíny, např. fakturace
