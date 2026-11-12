@@ -4,7 +4,7 @@ const { db } = require('./_lib/db');
 const { vyzadujRelaci } = require('./_lib/auth');
 const { ZNALOSTI } = require('./_lib/znalosti');
 
-const MODEL = 'llama-3.3-70b-versatile';
+const MODEL = 'openai/gpt-oss-120b';
 
 module.exports = async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -28,7 +28,7 @@ module.exports = async (req, res) => {
     const odp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, max_tokens: 700, temperature: 0.3, messages: [{ role: 'system', content: system }, ...zpravy] })
+      body: JSON.stringify({ model: MODEL, max_completion_tokens: 1500, reasoning_effort: 'low', temperature: 0.3, messages: [{ role: 'system', content: system }, ...zpravy] })
     });
     const data = await odp.json().catch(() => ({}));
     if (!odp.ok) {
