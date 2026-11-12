@@ -1440,9 +1440,9 @@ function renderVozidla() {
     </div>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>SPZ</th><th>Typ</th><th>Značka</th><th>STK</th><th>Pojistka</th><th>Dálniční známka</th><th>Tachograf</th><th>Poznámka</th><th></th></tr></thead>
+        <thead><tr><th>SPZ</th><th>Typ</th><th>Značka</th><th>STK</th><th>Pojistka</th><th>Dálniční známka</th><th>Tachograf</th><th>Provozní údaje</th><th>Poznámka</th><th></th></tr></thead>
         <tbody>
-          ${state.vozidla.length===0 ? `<tr><td colspan="9"><div class="empty-state"><div class="empty-ic">🚛</div>Žádná vozidla — přidej první.</div></td></tr>` :
+          ${state.vozidla.length===0 ? `<tr><td colspan="10"><div class="empty-state"><div class="empty-ic">🚛</div>Žádná vozidla — přidej první.</div></td></tr>` :
           state.vozidla.map(v=>{
             const maTacho = ['Kamion','Tahač'].includes(v.typ);
             return `
@@ -1452,6 +1452,12 @@ function renderVozidla() {
               <td>${formatDate(v.pojistka)} ${termBadge(v.pojistka)}</td>
               <td>${v.dalnicniZnamka ? formatDate(v.dalnicniZnamka)+' '+termBadge(v.dalnicniZnamka) : '<span style="color:var(--dim);font-size:12px;">—</span>'}</td>
               <td>${maTacho ? (v.posledniStazeniTacho ? formatDate(v.posledniStazeniTacho)+' '+stazeniBadge(v.posledniStazeniTacho,90) : '<span style="color:var(--dim);font-size:12px;">nikdy</span>') : '<span style="color:var(--dim);font-size:12px;">—</span>'}</td>
+              <td style="font-size:12.5px; line-height:1.6; white-space:nowrap;">${[
+                v.amortizaceKm ? `Amortizace <b>${(+v.amortizaceKm).toLocaleString('cs-CZ')} Kč/km</b>` : '',
+                v.mytoKm ? `Mýto <b>${(+v.mytoKm).toLocaleString('cs-CZ')} Kč/km</b>` : '',
+                v.prumernaSpotreba ? `Spotřeba <b>${(+v.prumernaSpotreba).toLocaleString('cs-CZ')} l/100 km</b>` : '',
+                v.objemNadrze ? `Nádrž <b>${(+v.objemNadrze).toLocaleString('cs-CZ')} l</b>` : ''
+              ].filter(Boolean).join('<br>') || '<span style="color:var(--dim);">—</span>'}</td>
               <td style="color:var(--muted);font-size:12.5px;">${v.poznamka||'—'}</td>
               <td style="display:flex;gap:6px;">
                 ${maTacho ? `<button class="btn btn-ghost btn-sm" onclick="stazenoTachoDnes(${v.id})">📡 Staženo dnes</button>` : ''}
@@ -1498,6 +1504,20 @@ function renderVozidloModal(v={}) {
             <input type="number" name="amortizaceKm" step="0.1" min="0" value="${v.amortizaceKm||''}" placeholder="např. 3.0">
             <span style="font-size:11.5px; color:var(--dim); margin-top:4px; display:block;">Odhad opotřebení vozidla na kilometr — použije se pro výpočet zisku na jízdu.</span>
           </div>
+          <div class="form-cols-2">
+            <div class="form-row">
+              <label>Mýto (Kč/km)</label>
+              <input type="number" name="mytoKm" step="0.01" min="0" value="${v.mytoKm||''}" placeholder="např. 2.5">
+            </div>
+            <div class="form-row">
+              <label>Průměrná spotřeba (l/100 km)</label>
+              <input type="number" name="prumernaSpotreba" step="0.1" min="0" value="${v.prumernaSpotreba||''}" placeholder="např. 28">
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Velikost palivové nádrže (l)</label>
+            <input type="number" name="objemNadrze" step="1" min="0" value="${v.objemNadrze||''}" placeholder="např. 400">
+          </div>
           <div class="form-row"><label>Poznámka</label><input type="text" name="poznamka" value="${v.poznamka||''}" placeholder="např. V provozu"></div>
           <div class="modal-actions">
             <button type="button" class="btn btn-ghost" onclick="closeModal('vozidloModal')">Zrušit</button>
@@ -1519,7 +1539,7 @@ function bindVozidla() {
   document.getElementById('vozidloForm').addEventListener('submit', (e) => {
     e.preventDefault(); const fd = new FormData(e.target);
     const editId = fd.get('editId');
-    const data = { spz: fd.get('spz'), typ: fd.get('typ'), znacka: fd.get('znacka'), stk: fd.get('stk'), pojistka: fd.get('pojistka'), dalnicniZnamka: fd.get('dalnicniZnamka') || null, poznamka: fd.get('poznamka'), amortizaceKm: +fd.get('amortizaceKm') || 0, posledniStazeniTacho: fd.get('posledniStazeniTacho') || null };
+    const data = { spz: fd.get('spz'), typ: fd.get('typ'), znacka: fd.get('znacka'), stk: fd.get('stk'), pojistka: fd.get('pojistka'), dalnicniZnamka: fd.get('dalnicniZnamka') || null, poznamka: fd.get('poznamka'), amortizaceKm: +fd.get('amortizaceKm') || 0, mytoKm: +fd.get('mytoKm') || 0, prumernaSpotreba: +fd.get('prumernaSpotreba') || 0, objemNadrze: +fd.get('objemNadrze') || 0, posledniStazeniTacho: fd.get('posledniStazeniTacho') || null };
     if (editId) {
       const idx = state.vozidla.findIndex(v=>v.id===+editId);
       if (idx>=0) state.vozidla[idx] = { ...state.vozidla[idx], ...data };

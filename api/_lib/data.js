@@ -5,8 +5,12 @@ const MAX_ZAZNAM = 100000;                  // max. velikost jednoho záznamu (J
 const MAX_FOTKA = 700000;                   // max. velikost fotky účtenky (base64)
 
 // Co dostane řidič: nikdy finance jízd, u řidičů jen jméno (žádný telefon, karty ani PINy)
+// sazby nákladů vozidla (amortizace, mýto) jsou jen pro majitele
+function bezNakladuVozidla(data) { const { amortizaceKm, mytoKm, ...zbytek } = data; return zbytek; }
+
 function projekceProRidice(coll, data) {
   if (!data) return data;
+  if (coll === 'vozidla') return bezNakladuVozidla(data);
   if (coll === 'ridici') return { id: data.id, jmeno: data.jmeno, malaDoprava: !!data.malaDoprava, velkaDoprava: !!data.velkaDoprava };
   if (coll === 'jizdy') { const { financni, ...zbytek } = data; return zbytek; }
   return data;
@@ -16,6 +20,7 @@ function projekceProRidice(coll, data) {
 // telefon, platnosti karet) — potřebuje kontaktovat řidiče a vědět o kartách, bez ceníků a nákladů.
 function projekceProDispecera(coll, data) {
   if (!data) return data;
+  if (coll === 'vozidla') return bezNakladuVozidla(data);
   if (coll === 'jizdy') { const { financni, ...zbytek } = data; return zbytek; }
   return data;
 }
