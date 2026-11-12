@@ -779,6 +779,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 27, datum: '2026-11-12', text: 'Asistentka mluví ženským českým hlasem (Vlasta) ze serveru, takže stejně v každém prohlížeči.' },
   { id: 26, datum: '2026-11-12', text: 'Asistentka dostala tvář (video) a ženský hlas: při otevření pozdraví a odpovědi čte nahlas (zvuk jde vypnout 🔊).' },
   { id: 25, datum: '2026-11-12', text: 'Horní lišta: digitální čas, datum a počasí v Dolním Třeboníně; zvoneček s popiskem; upozornění z Hlídače termínů s červeným připínáčkem a vykřičníkem.' },
   { id: 24, datum: '2026-11-12', text: 'AI asistentka (💬 vpravo dole): radí se systémem a ví, co kde je a jak se co počítá. Zapne se po vložení klíče GROQ_API_KEY do Vercelu.' },
@@ -876,7 +877,35 @@ function asistentkaVyberHlas() {
 function asistentkaTextKRecitaci(text) {
   return String(text).replace(/\*\*/g, '').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}✅❌️]/gu, '').replace(/^\s*[-•]\s+/gm, '').replace(/([:;,.!?])[ \t]*\n+/g, '$1 ').replace(/\n+/g, '. ').replace(/\s{2,}/g, ' ').trim();
 }
-function asistentkaMluv(text, video) {
+// Čtení ženským hlasem ze serveru (api/hlas.js, Microsoft Vlasta) — funguje v každém prohlížeči; při chybě záložní hlas prohlížeče
+let asistentkaAudio = null;
+function asistentkaStop() {
+  if (asistentkaAudio) { asistentkaAudio.pause(); asistentkaAudio = null; }
+  if (window.speechSynthesis) speechSynthesis.cancel();
+}
+async function asistentkaMluv(text, video) {
+  if (!asistentkaHlasZapnut) return;
+  asistentkaStop();
+  const recitace = asistentkaTextKRecitaci(text);
+  if (!recitace) return;
+  const moje = (asistentkaMluv._n = (asistentkaMluv._n || 0) + 1);
+  try {
+    const rel = nactiRelaci();
+    const r = await fetch('/api/hlas', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + rel.token }, body: JSON.stringify({ text: recitace }) });
+    if (!r.ok) throw new Error('hlas ' + r.status);
+    const blob = await r.blob();
+    if (moje !== asistentkaMluv._n || !asistentkaHlasZapnut) return;   // mezitím jiná řeč nebo vypnuto
+    const audio = new Audio(URL.createObjectURL(blob));
+    asistentkaAudio = audio;
+    audio.onplay = () => { video.loop = true; video.play().catch(() => {}); };
+    const konec = () => { video.pause(); video.currentTime = 0; URL.revokeObjectURL(audio.src); };
+    audio.onended = konec; audio.onerror = konec;
+    await audio.play();
+  } catch (e) {
+    if (moje === asistentkaMluv._n) asistentkaMluvPrehlizec(text, video);
+  }
+}
+function asistentkaMluvPrehlizec(text, video) {
   if (!asistentkaHlasZapnut || !window.speechSynthesis) return;
   speechSynthesis.cancel();
   const vety = (asistentkaTextKRecitaci(text).match(/[^.!?]+[.!?]*/g) || []).map(v => v.trim()).filter(Boolean);
@@ -939,16 +968,16 @@ function inicializujAsistentku() {
   };
   document.getElementById('asistentkaBtn').addEventListener('click', () => {
     panel.hidden = !panel.hidden;
-    if (panel.hidden) { if (window.speechSynthesis) speechSynthesis.cancel(); video.pause(); return; }
+    if (panel.hidden) { asistentkaStop(); video.pause(); return; }
     input.focus();
     if (!pozdraveno) { pozdraveno = true; const t = asistentkaPozdrav(); pridej('bot', t); asistentkaMluv(t, video); }
   });
-  document.getElementById('asistentkaZavrit').addEventListener('click', () => { panel.hidden = true; if (window.speechSynthesis) speechSynthesis.cancel(); video.pause(); });
+  document.getElementById('asistentkaZavrit').addEventListener('click', () => { panel.hidden = true; asistentkaStop(); video.pause(); });
   document.getElementById('asistentkaHlas').addEventListener('click', (e) => {
     asistentkaHlasZapnut = !asistentkaHlasZapnut;
     try { localStorage.setItem('vondrasek_asist_hlas', asistentkaHlasZapnut ? '1' : '0'); } catch (err) {}
     e.target.textContent = asistentkaHlasZapnut ? '🔊' : '🔇';
-    if (!asistentkaHlasZapnut && window.speechSynthesis) { speechSynthesis.cancel(); video.pause(); }
+    if (!asistentkaHlasZapnut) { asistentkaStop(); video.pause(); }
   });
   document.getElementById('asistentkaForm').addEventListener('submit', (e) => { e.preventDefault(); posli(input.value); });
   document.getElementById('asistentkaNavrhy').addEventListener('click', (e) => { if (e.target.tagName === 'BUTTON') posli(e.target.textContent); });
