@@ -6,7 +6,7 @@ const MAX_FOTKA = 700000;                   // max. velikost fotky účtenky (ba
 
 // Co dostane řidič: nikdy finance jízd, u řidičů jen jméno (žádný telefon, karty ani PINy)
 // sazby nákladů vozidla (amortizace, mýto) jsou jen pro majitele
-function bezNakladuVozidla(data) { const { amortizaceKm, mytoKm, ...zbytek } = data; return zbytek; }
+function bezNakladuVozidla(data) { const { amortizaceKm, mytoKm, servisKm, fixniMesicne, ...zbytek } = data; return zbytek; }
 
 function projekceProRidice(coll, data) {
   if (!data) return data;
@@ -21,6 +21,7 @@ function projekceProRidice(coll, data) {
 function projekceProDispecera(coll, data) {
   if (!data) return data;
   if (coll === 'vozidla') return bezNakladuVozidla(data);
+  if (coll === 'ridici') { const { denniNakladRidice, mesicniMzda, ...zbytek } = data; return zbytek; }   // mzdy kolegů vidí jen majitel
   if (coll === 'jizdy') { const { financni, ...zbytek } = data; return zbytek; }
   return data;
 }

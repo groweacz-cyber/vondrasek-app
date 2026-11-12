@@ -135,7 +135,7 @@ function vypocetOdhadNakladuDne(iso) {
     const cfg = state.pnsRouteConfig[route];
     const eff = efektivniTrasaDen(route, iso);
     if (eff.nejelo) return;
-    naklady += (+cfg.odhadNakladuZaDen || 0);
+    naklady += (+cfg.odhadNakladuZaDen || 0) + (+cfg.odmenaRidiceZaDen || 0);
   });
   return naklady;
 }
@@ -1000,6 +1000,19 @@ function bindJizdaForm(sekceProRenderPoUlozeni) {
 // ==========================================================
 // FINANCE NA JÍZDU — fakturováno, náklady, čistý zisk
 // ==========================================================
+// Denní náklad na řidiče z jeho profilu: zadaný denní náklad, jinak měsíční mzda ÷ 22 pracovních dní
+const PRACOVNICH_DNU_V_MESICI = 22;
+function denniNakladRidice(r) {
+  if (+r.denniNakladRidice > 0) return +r.denniNakladRidice;
+  if (+r.mesicniMzda > 0) return Math.round(+r.mesicniMzda / PRACOVNICH_DNU_V_MESICI);
+  return 0;
+}
+// Průměrná cena litru paliva z evidence tankování: nejdřív u daného vozidla, jinak za všechna vozidla
+function cenaPalivaZaLitr(spz) {
+  const prumer = (list) => { const l = list.reduce((s, t) => s + (+t.litry || 0), 0); return l > 0 ? list.reduce((s, t) => s + (+t.cenaCelkem || 0), 0) / l : 0; };
+  return prumer(state.tankovani.filter(t => t.vozidlo === spz)) || prumer(state.tankovani);
+}
+
 function renderFinanceModal(j={}, f={}) {
   return `
     <div class="modal-overlay" id="financeModal">
@@ -1014,6 +1027,10 @@ function renderFinanceModal(j={}, f={}) {
           </div>
 
           <div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin:18px 0 8px; padding-top:14px; border-top:1px solid var(--border-c);">Náklady na jízdu</div>
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+            <button type="button" class="btn btn-ghost btn-sm" id="btnDopocitatNaklady" title="Podle km jízdy, sazeb vozidla a nákladů na řidiče">⚙️ Dopočítat z vozidla a řidiče</button>
+            <span id="dopocitatInfo" style="font-size:11.5px; color:var(--muted);"></span>
+          </div>
 
           <div class="form-cols-2">
             <div class="form-row"><label>Palivo (Kč)</label><input type="number" name="palivo" step="1" min="0" value="${f.palivo||''}"></div>
@@ -1071,6 +1088,26 @@ function wireFinanceModal() {
   }
   form.querySelectorAll('input').forEach(inp => inp.addEventListener('input', updatePreview));
   updatePreview();
+
+  document.getElementById('btnDopocitatNaklady')?.addEventListener('click', () => {
+    const j = state.jizdy.find(x => x.id === +form.querySelector('[name="jizdaId"]').value);
+    const info = document.getElementById('dopocitatInfo');
+    if (!j) { info.textContent = 'Nejprve ulož jízdu.'; return; }
+    const v = state.vozidla.find(x => x.spz === j.vozidlo);
+    const km = +j.km || 0;
+    const nastav = (name, hodnota) => { form.querySelector(`[name="${name}"]`).value = Math.round(hodnota); };
+    const dopocteno = [], chybi = [];
+    if (v && v.amortizaceKm) { nastav('amortizace', v.amortizaceKm * km); dopocteno.push('amortizace'); } else chybi.push('amortizace');
+    if (v && v.mytoKm) { nastav('mytne', v.mytoKm * km); dopocteno.push('mýto'); } else chybi.push('mýto');
+    if (v && v.servisKm) { nastav('ostatni', v.servisKm * km); dopocteno.push('servis do ostatních'); } else chybi.push('servis');
+    const cena = cenaPalivaZaLitr(j.vozidlo);
+    if (v && v.prumernaSpotreba && cena) { nastav('palivo', km * v.prumernaSpotreba / 100 * cena); dopocteno.push(`palivo (${cena.toFixed(1)} Kč/l)`); } else chybi.push('palivo (spotřeba nebo cena paliva z tankování)');
+    const r = state.ridici.find(x => String(x.id) === String(j.driverId));
+    const denni = r ? denniNakladRidice(r) : 0;
+    if (denni) { nastav('ridicNaklad', denni); dopocteno.push('řidič'); } else chybi.push('řidič');
+    updatePreview();
+    info.textContent = (dopocteno.length ? 'Dopočítáno: ' + dopocteno.join(', ') + '. ' : '') + (chybi.length ? 'Chybí údaje: ' + chybi.join(', ') + '.' : '');
+  });
 
   const btnAuto = document.getElementById('btnAutoAmortizace');
   if (btnAuto) {
@@ -1524,7 +1561,9 @@ function renderVozidla() {
                 v.amortizaceKm ? `Amortizace <b>${(+v.amortizaceKm).toLocaleString('cs-CZ')} Kč/km</b>` : '',
                 v.mytoKm ? `Mýto <b>${(+v.mytoKm).toLocaleString('cs-CZ')} Kč/km</b>` : '',
                 v.prumernaSpotreba ? `Spotřeba <b>${(+v.prumernaSpotreba).toLocaleString('cs-CZ')} l/100 km</b>` : '',
-                v.objemNadrze ? `Nádrž <b>${(+v.objemNadrze).toLocaleString('cs-CZ')} l</b>` : ''
+                v.objemNadrze ? `Nádrž <b>${(+v.objemNadrze).toLocaleString('cs-CZ')} l</b>` : '',
+                v.servisKm ? `Servis <b>${(+v.servisKm).toLocaleString('cs-CZ')} Kč/km</b>` : '',
+                v.fixniMesicne ? `Fixní <b>${(+v.fixniMesicne).toLocaleString('cs-CZ')} Kč/měs.</b>` : ''
               ].filter(Boolean).join('<br>') || '<span style="color:var(--dim);">—</span>'}</td>
               <td style="color:var(--muted);font-size:12.5px;">${v.poznamka||'—'}</td>
               <td style="display:flex;gap:6px;">
@@ -1586,6 +1625,17 @@ function renderVozidloModal(v={}) {
             <label>Velikost palivové nádrže (l)</label>
             <input type="number" name="objemNadrze" step="1" min="0" value="${v.objemNadrze||''}" placeholder="např. 400">
           </div>
+          <div class="form-cols-2">
+            <div class="form-row">
+              <label>Servis a pneu (Kč/km)</label>
+              <input type="number" name="servisKm" step="0.01" min="0" value="${v.servisKm||''}" placeholder="např. 1.2">
+            </div>
+            <div class="form-row">
+              <label>Fixní náklady (Kč/měsíc)</label>
+              <input type="number" name="fixniMesicne" step="1" min="0" value="${v.fixniMesicne||''}" placeholder="leasing, pojištění, daň…">
+            </div>
+          </div>
+          <p style="font-size:11.5px; color:var(--dim); margin:-6px 0 14px;">Tyhle sazby se používají v tlačítku „Dopočítat" ve financích jízdy a v přehledu nákladovosti a ziskovosti vozidel (Reporty). Vidí je jen majitel.</p>
           <div class="form-row"><label>Poznámka</label><input type="text" name="poznamka" value="${v.poznamka||''}" placeholder="např. V provozu"></div>
           <div class="modal-actions">
             <button type="button" class="btn btn-ghost" onclick="closeModal('vozidloModal')">Zrušit</button>
@@ -1607,7 +1657,7 @@ function bindVozidla() {
   document.getElementById('vozidloForm').addEventListener('submit', (e) => {
     e.preventDefault(); const fd = new FormData(e.target);
     const editId = fd.get('editId');
-    const data = { spz: fd.get('spz'), typ: fd.get('typ'), znacka: fd.get('znacka'), stk: fd.get('stk'), pojistka: fd.get('pojistka'), dalnicniZnamka: fd.get('dalnicniZnamka') || null, poznamka: fd.get('poznamka'), amortizaceKm: +fd.get('amortizaceKm') || 0, mytoKm: +fd.get('mytoKm') || 0, prumernaSpotreba: +fd.get('prumernaSpotreba') || 0, objemNadrze: +fd.get('objemNadrze') || 0, posledniStazeniTacho: fd.get('posledniStazeniTacho') || null };
+    const data = { spz: fd.get('spz'), typ: fd.get('typ'), znacka: fd.get('znacka'), stk: fd.get('stk'), pojistka: fd.get('pojistka'), dalnicniZnamka: fd.get('dalnicniZnamka') || null, poznamka: fd.get('poznamka'), amortizaceKm: +fd.get('amortizaceKm') || 0, mytoKm: +fd.get('mytoKm') || 0, prumernaSpotreba: +fd.get('prumernaSpotreba') || 0, objemNadrze: +fd.get('objemNadrze') || 0, servisKm: +fd.get('servisKm') || 0, fixniMesicne: +fd.get('fixniMesicne') || 0, posledniStazeniTacho: fd.get('posledniStazeniTacho') || null };
     if (editId) {
       const idx = state.vozidla.findIndex(v=>v.id===+editId);
       if (idx>=0) state.vozidla[idx] = { ...state.vozidla[idx], ...data };
@@ -1854,6 +1904,12 @@ function renderRidicModal(r={}) {
             <label for="ridicVedouciDopravy" style="margin:0;">🧭 Vedoucí dopravy</label>
           </div>
           <p style="font-size:11.5px; color:var(--dim); margin:-6px 0 14px;">Navíc k vlastní trase smí zapisovat jízdy, tankování a objížďky i za ostatní řidiče (bez přístupu k financím, cenám a nákladům).</p>
+          <div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin:6px 0 8px;">Náklady na řidiče (vidí jen majitel)</div>
+          <div class="form-cols-2">
+            <div class="form-row"><label>Denní náklad / odměna (Kč za den)</label><input type="number" name="denniNakladRidice" step="1" min="0" value="${r.denniNakladRidice||''}" placeholder="např. 1200"></div>
+            <div class="form-row"><label>Měsíční mzda (Kč)</label><input type="number" name="mesicniMzda" step="1" min="0" value="${r.mesicniMzda||''}" placeholder="např. 35000"></div>
+          </div>
+          <p style="font-size:11.5px; color:var(--dim); margin:-6px 0 14px;">U velké dopravy se z toho předvyplní „Náklad na řidiče" ve financích jízdy (tlačítko Dopočítat). Denní náklad má přednost; když je zadaná jen mzda, počítá se mzda ÷ 22 pracovních dní.</p>
           <div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin:6px 0 8px;">Zařazení (řidič si malou/velkou umí přepnout i sám ze svého přístupu)</div>
           <div style="display:flex; gap:22px; flex-wrap:wrap; margin-bottom:14px;">
             <label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="checkbox" name="malaDoprava" ${r.malaDoprava?'checked':''} style="width:18px;height:18px;"> 📰 Malá doprava</label>
@@ -1952,7 +2008,7 @@ function bindRidici() {
         chyba.style.display = 'block'; return;
       }
     }
-    const data = { jmeno: fd.get('jmeno'), telefon: fd.get('telefon'), skupina: fd.get('skupina'), kartaRidice: fd.get('kartaRidice'), profesniPrukaz: fd.get('profesniPrukaz'), posledniStazeniKarty: fd.get('posledniStazeniKarty') || null, vedouciDopravy: fd.get('vedouciDopravy') === 'on', malaDoprava: fd.get('malaDoprava') === 'on', velkaDoprava: fd.get('velkaDoprava') === 'on', eon: fd.get('eon') === 'on' };
+    const data = { jmeno: fd.get('jmeno'), telefon: fd.get('telefon'), skupina: fd.get('skupina'), kartaRidice: fd.get('kartaRidice'), profesniPrukaz: fd.get('profesniPrukaz'), posledniStazeniKarty: fd.get('posledniStazeniKarty') || null, vedouciDopravy: fd.get('vedouciDopravy') === 'on', denniNakladRidice: +fd.get('denniNakladRidice') || 0, mesicniMzda: +fd.get('mesicniMzda') || 0, malaDoprava: fd.get('malaDoprava') === 'on', velkaDoprava: fd.get('velkaDoprava') === 'on', eon: fd.get('eon') === 'on' };
     if (editId) {
       const idx = state.ridici.findIndex(r=>r.id===+editId);
       if (idx>=0) {
@@ -2800,6 +2856,8 @@ window.openTrasaDetail = function(route) {
     if (eff.ridic) ridicPocty[eff.ridic] = (ridicPocty[eff.ridic]||0) + 1;
     if (eff.maVyjimku) vyjimkyList.push({ iso, extra: eff.objizdkaKm, ridic: eff.ridic||'—', nejelo:false });
   }
+  const nakladyCelkem = dnyJizdnich * ((+cfg.odhadNakladuZaDen || 0) + (+cfg.odmenaRidiceZaDen || 0));
+  const ziskTrasy = prijemCelkem - nakladyCelkem;
   const ridicSouhrn = Object.entries(ridicPocty).sort((a,b)=>b[1]-a[1]).map(([r,c]) => `${r} (${c}×)`).join(', ');
 
   document.getElementById('trasaDetailContent').innerHTML = `
@@ -2815,7 +2873,7 @@ window.openTrasaDetail = function(route) {
         <input type="radio" name="cenovyModel" value="km" id="modelKm" ${cfg.cenovyModel!=='pausal'?'checked':''}> Cena za km
       </label>
       <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-        <input type="radio" name="cenovyModel" value="pausal" id="modelPausal" ${cfg.cenovyModel==='pausal'?'checked':''}> Paušál za den
+        <input type="radio" name="cenovyModel" value="pausal" id="modelPausal" ${cfg.cenovyModel==='pausal'?'checked':''}> Denní paušál od klienta
       </label>
     </div>
 
@@ -2824,7 +2882,7 @@ window.openTrasaDetail = function(route) {
       <div class="form-row"><label>Počet km trasy (za den)</label><input type="number" id="trasaKmZaDen" step="1" min="0" value="${cfg.kmZaDen||''}"></div>
     </div>
     <div id="poleParusal" class="form-row" style="${cfg.cenovyModel!=='pausal'?'display:none;':''}">
-      <label>Paušál za den (Kč)</label>
+      <label>Denní paušál od klienta — příjem (Kč za den)</label>
       <input type="number" id="trasaPausalZaDen" step="1" min="0" value="${cfg.pausalZaDen||''}">
     </div>
 
@@ -2837,9 +2895,13 @@ window.openTrasaDetail = function(route) {
         </select>
       </div>
       <div class="form-row">
-        <label>Odhad nákladů za den (Kč)</label>
-        <input type="number" id="trasaOdhadNakladu" step="1" min="0" value="${cfg.odhadNakladuZaDen||''}">
+        <label>Odměna řidiče za den (Kč)</label>
+        <input type="number" id="trasaOdmenaRidice" step="1" min="0" value="${cfg.odmenaRidiceZaDen||''}">
       </div>
+    </div>
+    <div class="form-row">
+      <label>Ostatní náklady za den (palivo, auto… Kč)</label>
+      <input type="number" id="trasaOdhadNakladu" step="1" min="0" value="${cfg.odhadNakladuZaDen||''}">
     </div>
 
     <div class="modal-actions" style="margin-bottom:12px;">
@@ -2854,6 +2916,8 @@ window.openTrasaDetail = function(route) {
       <div class="metric"><div class="m-label">Dní odjeto</div><div class="m-value">${dnyJizdnich}</div>${dnyNejelo>0?`<div class="m-delta" style="color:var(--red);">${dnyNejelo}× nejelo</div>`:''}</div>
       <div class="metric"><div class="m-label">Km celkem</div><div class="m-value">${(kmZakladCelkem+kmObjizdkaCelkem).toLocaleString('cs-CZ')}</div>${kmObjizdkaCelkem>0?`<div class="m-delta neutral">z toho ${kmObjizdkaCelkem} km objížďky</div>`:''}</div>
       <div class="metric"><div class="m-label">Příjem</div><div class="m-value" style="color:var(--green);">${prijemCelkem.toLocaleString('cs-CZ')} Kč</div></div>
+      <div class="metric"><div class="m-label">Náklady</div><div class="m-value">${nakladyCelkem.toLocaleString('cs-CZ')} Kč</div><div class="m-delta neutral">odměna řidiče + ostatní</div></div>
+      <div class="metric"><div class="m-label">Zisk</div><div class="m-value" style="color:${ziskTrasy>=0?'var(--green)':'var(--red)'};">${ziskTrasy.toLocaleString('cs-CZ')} Kč</div></div>
     </div>
     ${ridicSouhrn ? `<p style="font-size:12px; color:var(--muted); margin-bottom:14px;">👷 Jezdili: ${ridicSouhrn}</p>` : ''}
     ${kmObjizdkaCelkem > 0 && cfg.cenovyModel !== 'pausal' ? `<p style="font-size:12px; color:var(--amber); margin-bottom:14px;">🛣️ Objížďky tento měsíc: ${kmObjizdkaCelkem} km navíc = ${(kmObjizdkaCelkem*(+cfg.cenaZaKm||0)).toLocaleString('cs-CZ')} Kč navíc</p>` : ''}
@@ -2885,6 +2949,7 @@ window.openTrasaDetail = function(route) {
       kmZaDen: +document.getElementById('trasaKmZaDen').value || 0,
       pausalZaDen: +document.getElementById('trasaPausalZaDen').value || 0,
       odhadNakladuZaDen: +document.getElementById('trasaOdhadNakladu').value || 0,
+      odmenaRidiceZaDen: +document.getElementById('trasaOdmenaRidice').value || 0,
       stalyRidic: document.getElementById('trasaStalyRidic').value
     };
     saveState(); closeModal('trasaDetailModal'); renderSection('mala-doprava');
@@ -2896,10 +2961,11 @@ window.openTrasaDetail = function(route) {
       cenaZaKm: +document.getElementById('trasaCenaZaKm').value || 0,
       kmZaDen: +document.getElementById('trasaKmZaDen').value || 0,
       pausalZaDen: +document.getElementById('trasaPausalZaDen').value || 0,
-      odhadNakladuZaDen: +document.getElementById('trasaOdhadNakladu').value || 0
+      odhadNakladuZaDen: +document.getElementById('trasaOdhadNakladu').value || 0,
+      odmenaRidiceZaDen: +document.getElementById('trasaOdmenaRidice').value || 0
     };
     const ostatni = PNS_ROUTES.filter(r => r !== route);
-    if (!confirm(`Přepsat cenu, model a odhad nákladů na ${ostatni.length} ostatních tras podle trasy ${route}?\n\nStálý řidič u každé trasy zůstane beze změny. Tato akce je nevratná.`)) return;
+    if (!confirm(`Přepsat cenu, model, odměnu řidiče a náklady na ${ostatni.length} ostatních tras podle trasy ${route}?\n\nStálý řidič u každé trasy zůstane beze změny. Tato akce je nevratná.`)) return;
     ostatni.forEach(r => { state.pnsRouteConfig[r] = { ...state.pnsRouteConfig[r], ...zdroj }; });
     saveState();
     alert(`Hotovo — cena přepsána na ${ostatni.length} tras.`);
@@ -2993,6 +3059,99 @@ function exportMalaDopravaVyjimkyCSV() {
 }
 
 
+// ==========================================================
+// NÁKLADOVOST A ZISKOVOST VOZIDEL (Reporty) — z financí jízd, tankování a sazeb vozidla
+// ==========================================================
+function nakladyJizdy(f) {
+  return f ? ['palivo','mytne','clo','amortizace','pojisteni','ridicNaklad','ostatni'].reduce((s, k) => s + (+f[k] || 0), 0) : 0;
+}
+// mesic = 'RRRR-MM' nebo '' (celé období)
+function vozidloStatistika(v, mesic) {
+  const vMesici = (d) => !mesic || String(d || '').startsWith(mesic);
+  const jizdy = state.jizdy.filter(j => j.vozidlo === v.spz && vMesici(j.datum));
+  const tank = state.tankovani.filter(t => t.vozidlo === v.spz && vMesici(t.datum));
+  const km = jizdy.reduce((s, j) => s + (+j.km || 0), 0);
+  const sFinancemi = jizdy.filter(j => j.financni);
+  const trzby = sFinancemi.reduce((s, j) => s + (+j.financni.fakturovano || 0), 0);
+  const nakladyJizd = sFinancemi.reduce((s, j) => s + nakladyJizdy(j.financni), 0);
+  const mesice = new Set(jizdy.concat(tank).map(x => String(x.datum || '').slice(0, 7)).filter(Boolean));
+  const fixni = (+v.fixniMesicne || 0) * (mesic ? (mesice.size ? 1 : 0) : mesice.size);
+  const litry = tank.reduce((s, t) => s + (+t.litry || 0), 0);
+  const naklady = nakladyJizd + fixni;
+  return {
+    v, km, pocet: jizdy.length, bezFinanci: jizdy.length - sFinancemi.length, trzby, nakladyJizd, fixni, naklady, zisk: trzby - naklady,
+    nakladNaKm: km > 0 ? naklady / km : 0, ziskNaKm: km > 0 ? (trzby - naklady) / km : 0,
+    litry, skutecnaSpotreba: km > 0 && litry > 0 ? litry / km * 100 : 0
+  };
+}
+window.setVozMesic = function(m) { window._vozMesic = m; renderSection('reporty'); };
+function vozidlaPrehledData() {
+  const mesic = window._vozMesic === undefined ? toISO(new Date()).slice(0, 7) : window._vozMesic;
+  return { mesic, radky: state.vozidla.map(v => vozidloStatistika(v, mesic)) };
+}
+function renderVozidlaZiskovost() {
+  const { mesic, radky } = vozidlaPrehledData();
+  const kc = (n) => Math.round(n).toLocaleString('cs-CZ') + ' Kč';
+  const sum = radky.reduce((a, r) => ({ km: a.km + r.km, trzby: a.trzby + r.trzby, naklady: a.naklady + r.naklady, bez: a.bez + r.bezFinanci }), { km: 0, trzby: 0, naklady: 0, bez: 0 });
+  const radkyHtml = radky.map(r => {
+    const norma = +r.v.prumernaSpotreba || 0;
+    let spotreba = '—';
+    if (r.skutecnaSpotreba) {
+      const odch = norma ? (r.skutecnaSpotreba - norma) / norma * 100 : null;
+      spotreba = `<b>${r.skutecnaSpotreba.toFixed(1)}</b> l/100` + (norma ? ` <span style="color:${odch > 10 ? 'var(--red)' : odch > 3 ? 'var(--amber)' : 'var(--green)'}; font-size:11.5px;">(norma ${norma}, ${odch >= 0 ? '+' : ''}${odch.toFixed(0)} %)</span>` : '');
+    } else if (norma) spotreba = `<span style="color:var(--dim);">norma ${norma} l/100</span>`;
+    return `<tr>
+      <td><b>${r.v.spz}</b><div style="font-size:11.5px; color:var(--muted);">${r.v.znacka || r.v.typ || ''}</div></td>
+      <td style="text-align:right">${r.km.toLocaleString('cs-CZ')}</td>
+      <td style="text-align:right">${r.pocet}${r.bezFinanci ? ` <span title="Jízdy bez vyplněných financí se do tržeb a nákladů nepočítají" style="color:var(--amber);">⚠ ${r.bezFinanci}</span>` : ''}</td>
+      <td style="text-align:right">${kc(r.trzby)}</td>
+      <td style="text-align:right">${kc(r.naklady)}${r.fixni ? `<div style="font-size:11.5px; color:var(--muted);">z toho fixní ${kc(r.fixni)}</div>` : ''}</td>
+      <td style="text-align:right"><b style="color:${r.zisk >= 0 ? 'var(--green)' : 'var(--red)'};">${kc(r.zisk)}</b></td>
+      <td style="text-align:right">${r.km ? (r.nakladNaKm.toFixed(1) + ' Kč') : '—'}</td>
+      <td style="text-align:right">${r.km ? (r.ziskNaKm.toFixed(1) + ' Kč') : '—'}</td>
+      <td style="white-space:nowrap;">${spotreba}</td>
+    </tr>`;
+  }).join('');
+  const celkemZisk = sum.trzby - sum.naklady;
+  return `
+    <div class="card-panel" style="margin-top:20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <div>
+          <h3 style="margin-bottom:4px;">🚛 Nákladovost a ziskovost vozidel</h3>
+          <p class="csub" style="margin-bottom:0;">Tržby a náklady z financí jízd (Evidence jízd → 💰 Finance, tlačítko „Dopočítat" použije sazby vozidla a řidiče) plus fixní měsíční náklady vozidla. Skutečná spotřeba je z tankování a km jízd.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <select onchange="setVozMesic(this.value)" style="max-width:200px;">
+            <option value="" ${mesic === '' ? 'selected' : ''}>Celé období</option>
+            ${posledni12Mesicu().map(m => `<option value="${m.value}" ${m.value === mesic ? 'selected' : ''}>${m.label}</option>`).join('')}
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick="exportVozidlaZiskovostCSV()">📥 CSV</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto; margin-top:12px;">
+        <table class="data-table">
+          <thead><tr><th>Vozidlo</th><th style="text-align:right">Km</th><th style="text-align:right">Jízd</th><th style="text-align:right">Tržby</th><th style="text-align:right">Náklady</th><th style="text-align:right">Zisk</th><th style="text-align:right">Náklad/km</th><th style="text-align:right">Zisk/km</th><th>Spotřeba (skutečná)</th></tr></thead>
+          <tbody>
+            ${radkyHtml || '<tr><td colspan="9" class="empty-state">Žádná vozidla.</td></tr>'}
+            ${radky.length ? `<tr style="font-weight:700;"><td>CELKEM</td><td style="text-align:right">${sum.km.toLocaleString('cs-CZ')}</td><td></td><td style="text-align:right">${kc(sum.trzby)}</td><td style="text-align:right">${kc(sum.naklady)}</td><td style="text-align:right; color:${celkemZisk >= 0 ? 'var(--green)' : 'var(--red)'};">${kc(celkemZisk)}</td><td></td><td></td><td></td></tr>` : ''}
+          </tbody>
+        </table>
+      </div>
+      ${sum.bez ? `<p style="font-size:12px; color:var(--amber); margin-top:10px;">⚠ ${sum.bez} jízd nemá vyplněné finance, takže se do tržeb a nákladů nepočítají. Doplň je v Evidenci jízd.</p>` : ''}
+    </div>`;
+}
+window.exportVozidlaZiskovostCSV = function() {
+  const { mesic, radky } = vozidlaPrehledData();
+  const hlavicka = ['Vozidlo', 'Značka', 'Km', 'Jízd', 'Jízd bez financí', 'Tržby Kč', 'Náklady jízd Kč', 'Fixní náklady Kč', 'Náklady celkem Kč', 'Zisk Kč', 'Náklad na km', 'Zisk na km', 'Litry', 'Skutečná spotřeba l/100km', 'Norma l/100km'];
+  const data = radky.map(r => [
+    r.v.spz, r.v.znacka || '', r.km, r.pocet, r.bezFinanci, Math.round(r.trzby), Math.round(r.nakladyJizd), Math.round(r.fixni),
+    Math.round(r.naklady), Math.round(r.zisk), r.km ? r.nakladNaKm.toFixed(2) : '', r.km ? r.ziskNaKm.toFixed(2) : '',
+    Math.round(r.litry), r.skutecnaSpotreba ? r.skutecnaSpotreba.toFixed(1) : '', r.v.prumernaSpotreba || ''
+  ]);
+  const csv = [hlavicka].concat(data).map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n');
+  downloadFile('vozidla-ziskovost-' + (mesic || 'vse') + '.csv', 'text/csv;charset=utf-8;', '﻿' + csv);
+};
+
 function renderReporty() {
   const kmPerRidic = {}, kmPerVozidlo = {}, litryPerVozidlo = {};
   state.jizdy.forEach(j => { kmPerRidic[j.ridic] = (kmPerRidic[j.ridic]||0) + (+j.km||0); kmPerVozidlo[j.vozidlo] = (kmPerVozidlo[j.vozidlo]||0) + (+j.km||0); });
@@ -3043,6 +3202,8 @@ function renderReporty() {
         </tbody></table>
       </div>
     </div>
+
+    ${renderVozidlaZiskovost()}
 
     ${Object.keys(ziskPerRidic).length > 0 ? `
     <div class="card-panel" style="margin-top:20px;">
