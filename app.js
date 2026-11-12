@@ -2247,6 +2247,9 @@ let eonDashOffset = 0;
 function eonKlic(year, month) { return `${year}-${String(month + 1).padStart(2, '0')}`; }
 function eonDnyMesice(year, month) { const r = state.eonDny[eonKlic(year, month)]; return (r && r.dny) || {}; }
 function eonPocetDnuMesice(year, month) { return Object.keys(eonDnyMesice(year, month)).length; }
+const EON_KC_ZA_DEN = 200;   // paušál řidičce za každý den, kdy trasa jela
+const kcFmt = (n) => n.toLocaleString('cs-CZ') + ' Kč';
+function eonCastkaMesice(year, month) { return eonPocetDnuMesice(year, month) * EON_KC_ZA_DEN; }
 function eonRidiciJmena() { return state.ridici.filter(r => r.eon).map(r => r.jmeno); }
 function eonDashMesic() {
   const d = new Date(new Date().getFullYear(), new Date().getMonth() + eonDashOffset, 1);
@@ -2288,7 +2291,10 @@ function renderEonKarta(year, month, ctx) {
         ${dow.map(x => `<div class="cal-dow">${x}</div>`).join('')}
         ${cells}
       </div>
-      <p style="margin:12px 0 0; font-size:13px;">Jela <b id="eonPocet">${eonPocetDnuMesice(year, month)}</b> dní v měsíci ${EON_MESICE[month].toLowerCase()}.</p>
+      <div style="margin-top:14px; padding:12px 14px; border:1px solid var(--green); border-radius:var(--radius-sm); background:rgba(16,185,129,0.08);">
+        <div style="font-size:13px;">Jela <b id="eonPocet">${eonPocetDnuMesice(year, month)}</b> dní v měsíci ${EON_MESICE[month].toLowerCase()} × ${EON_KC_ZA_DEN} Kč za den (paušál)</div>
+        <div style="font-size:16px; margin-top:4px;">${ctx === 'mala' ? 'K vyplacení řidičce' : 'Za tento měsíc dostaneš'}: <b id="eonCastka" style="color:var(--green); font-size:20px;">${kcFmt(eonCastkaMesice(year, month))}</b></div>
+      </div>
     </div>
   `;
 }
@@ -2315,6 +2321,7 @@ function bindEon(ctx) {
     lab.style.background = cb.checked ? 'rgba(16,185,129,0.12)' : '';
     const { year, month } = mesic();
     document.getElementById('eonPocet').textContent = eonPocetDnuMesice(year, month);
+    document.getElementById('eonCastka').textContent = kcFmt(eonCastkaMesice(year, month));
     saveState();
   });
 }
@@ -2346,7 +2353,7 @@ function eonTiskHtml(year, month) {
 <div class="sub">Autodoprava Vondrášek, s.r.o. · paušální trasa</div>
 <div class="meta"><div><b>Měsíc</b>${EON_MESICE[month]} ${year}</div><div><b>Řidič</b>${esc(jmena)}</div></div>
 <table><thead><tr><th>Datum</th><th>Den</th><th class="c">Trasa jela</th></tr></thead><tbody>${radky}</tbody></table>
-<div class="sum">Počet dní, kdy trasa jela: <b>${pocet}</b></div>
+<div class="sum">Počet dní, kdy trasa jela: <b>${pocet}</b> × ${EON_KC_ZA_DEN} Kč (paušál za den) = <b>K vyplacení: ${kcFmt(pocet * EON_KC_ZA_DEN)}</b></div>
 <div class="sign"><div>Podpis řidiče</div><div>Schválil (majitel)</div></div>
 </body></html>`;
 }
