@@ -364,6 +364,8 @@ function renderDashboard() {
     ${!isOwner ? renderMojeZarazeni() : ''}
     ${!isOwner && eonRidic ? renderEonKarta(eonDashMesic().year, eonDashMesic().month, 'dash') : ''}
 
+    ${isOwner ? renderPrehledProvozu() : ''}
+
     ${isOwner || isDispecer ? renderDnesekMalaDoprava() : ''}
     ${isOwner || isDispecer ? renderHlaseniObjizdekOwnerCard() : renderHlaseniObjizdekDriverCard()}
 
@@ -512,6 +514,146 @@ function renderJizdyPoMesicich(vidiVsechny) {
           <tbody id="jizdyMesiceBody">${jizdyMesiceRadky()}</tbody>
         </table>
       </div>
+    </div>`;
+}
+
+// ==========================================================
+// PŘEHLED PROVOZU (dashboard majitele) — řidiči, trasy a vozidla za zvolený měsíc, průběžně se aktualizuje
+// ==========================================================
+window._prehledTab = window._prehledTab || 'ridici';
+function prehledMesic() { return window._prehledMesic || toISO(new Date()).slice(0, 7); }
+window.prehledNastav = function(co, hodnota) {
+  window['_prehled' + co] = hodnota;
+  const el = document.getElementById('prehledKarta');
+  if (el) el.outerHTML = renderPrehledProvozu();
+};
+window.prehledOtevri = function(sekce, fn, arg) {
+  document.querySelector(`.nav-item[data-section="${sekce}"]`).click();
+  if (typeof window[fn] === 'function') window[fn](arg);
+};
+
+// Dny měsíce, kdy se jede (bez nedělí a svátků)
+function prehledJizdniDny(mesic) {
+  const [y, m] = mesic.split('-').map(Number);
+  const n = new Date(y, m, 0).getDate(), out = [];
+  for (let d = 1; d <= n; d++) { const iso = toISO(new Date(y, m - 1, d)); if (isDrivingDay(iso)) out.push(iso); }
+  return out;
+}
+
+function prehledRidic(r, mesic, dny) {
+  const jizdy = state.jizdy.filter(j => String(j.driverId) === String(r.id) && String(j.datum || '').startsWith(mesic));
+  const tank = state.tankovani.filter(t => String(t.driverId) === String(r.id) && String(t.datum || '').startsWith(mesic));
+  const sFin = jizdy.filter(j => j.financni);
+  const trzby = sFin.reduce((s, j) => s + (+j.financni.fakturovano || 0), 0);
+  const naklJizd = sFin.reduce((s, j) => s + nakladyJizdy(j.financni), 0);
+  let pnsDny = 0, pnsKm = 0, zastupy = 0, odmenaPns = 0;
+  dny.forEach(iso => PNS_ROUTES.forEach(route => {
+    const eff = efektivniTrasaDen(route, iso);
+    if (eff.nejelo || eff.ridic !== r.jmeno) return;
+    const cfg = state.pnsRouteConfig[route] || {};
+    pnsDny++; pnsKm += (+cfg.kmZaDen || 0) + eff.objizdkaKm; odmenaPns += (+cfg.odmenaRidiceZaDen || 0);
+    if (cfg.stalyRidic !== r.jmeno) zastupy++;
+  }));
+  const [y, m] = mesic.split('-').map(Number);
+  const eonDny = r.eon ? eonPocetDnuMesice(y, m - 1) : 0;
+  const odmenaEon = eonDny * EON_KC_ZA_DEN;
+  const odmenaVelka = sFin.reduce((s, j) => s + (+j.financni.ridicNaklad || 0), 0);
+  return {
+    r, jizdy: jizdy.length, km: jizdy.reduce((s, j) => s + (+j.km || 0), 0), bezFinanci: jizdy.length - sFin.length,
+    zisk: trzby - naklJizd, pnsDny, pnsKm, zastupy, eonDny,
+    litry: tank.reduce((s, t) => s + (+t.litry || 0), 0), kcTank: tank.reduce((s, t) => s + (+t.cenaCelkem || 0), 0),
+    odmena: odmenaPns + odmenaEon + odmenaVelka
+  };
+}
+
+function prehledTrasa(route, dny) {
+  const cfg = state.pnsRouteConfig[route] || {};
+  let odjeto = 0, nejelo = 0, km = 0, prijem = 0, vyjimek = 0;
+  const jezdili = {};
+  dny.forEach(iso => {
+    const eff = efektivniTrasaDen(route, iso);
+    if (eff.maVyjimku) vyjimek++;
+    if (eff.nejelo) { nejelo++; return; }
+    odjeto++;
+    km += (+cfg.kmZaDen || 0) + eff.objizdkaKm;
+    prijem += cfg.cenovyModel === 'pausal' ? (+cfg.pausalZaDen || 0) : (((+cfg.kmZaDen || 0) + eff.objizdkaKm) * (+cfg.cenaZaKm || 0));
+    if (eff.ridic) jezdili[eff.ridic] = (jezdili[eff.ridic] || 0) + 1;
+  });
+  const naklady = odjeto * ((+cfg.odhadNakladuZaDen || 0) + (+cfg.odmenaRidiceZaDen || 0));
+  return { route, cfg, odjeto, nejelo, km, prijem, naklady, zisk: prijem - naklady, vyjimek: vyjimek, jezdili };
+}
+
+function renderPrehledProvozu() {
+  const mesic = prehledMesic(), tab = window._prehledTab;
+  const dny = prehledJizdniDny(mesic);
+  const kc = (n) => Math.round(n).toLocaleString('cs-CZ') + ' Kč';
+  const zbarvi = (n) => `<b style="color:${n >= 0 ? 'var(--green)' : 'var(--red)'};">${kc(n)}</b>`;
+  const th = (t, p) => `<th${p ? ' style="text-align:right"' : ''}>${t}</th>`;
+  const td = (t) => `<td style="text-align:right">${t}</td>`;
+  let tabulka = '';
+
+  if (tab === 'ridici') {
+    const radky = state.ridici.map(r => prehledRidic(r, mesic, dny));
+    const suma = radky.reduce((a, x) => ({ odmena: a.odmena + x.odmena, km: a.km + x.km + x.pnsKm }), { odmena: 0, km: 0 });
+    tabulka = `<table class="data-table"><thead><tr><th>Řidič</th>${th('Jízdy (velká)', 1)}${th('Trasy PNS', 1)}${th('Eon', 1)}${th('Tankování', 1)}${th('Zisk z jízd', 1)}${th('Odměna / náklad na řidiče', 1)}</tr></thead><tbody>
+      ${radky.map(x => `<tr style="cursor:pointer;" onclick="prehledOtevri('ridici','openRidicDetail',${x.r.id})" title="Otevřít detail řidiče">
+        <td><b>${x.r.jmeno}</b><div style="font-size:11.5px; color:var(--muted);">${x.r.malaDoprava ? '📰 Malá ' : ''}${x.r.velkaDoprava ? '🚛 Velká ' : ''}${x.r.eon ? '🚐 Eon ' : ''}${x.r.vedouciDopravy ? '🧭 vedoucí' : ''}${!x.r.malaDoprava && !x.r.velkaDoprava && !x.r.eon ? 'nezařazen' : ''}</div></td>
+        ${td(x.jizdy ? `<b>${x.jizdy}</b> · ${x.km.toLocaleString('cs-CZ')} km${x.bezFinanci ? ` <span title="bez financí" style="color:var(--amber);">⚠${x.bezFinanci}</span>` : ''}` : '—')}
+        ${td(x.pnsDny ? `<b>${x.pnsDny}</b> dní · ${x.pnsKm.toLocaleString('cs-CZ')} km${x.zastupy ? ` <span style="color:var(--muted); font-size:11.5px;">(${x.zastupy}× zástup)</span>` : ''}` : '—')}
+        ${td(x.eonDny ? `<b>${x.eonDny}</b> dní` : '—')}
+        ${td(x.litry ? `${Math.round(x.litry).toLocaleString('cs-CZ')} l · ${kc(x.kcTank)}` : '—')}
+        ${td(x.jizdy - x.bezFinanci ? zbarvi(x.zisk) : '—')}
+        ${td(x.odmena ? `<b>${kc(x.odmena)}</b>${x.r.mesicniMzda ? `<div style="font-size:11.5px; color:var(--muted);">mzda ${kc(x.r.mesicniMzda)}</div>` : ''}` : (x.r.mesicniMzda ? `<span style="color:var(--muted);">mzda ${kc(x.r.mesicniMzda)}</span>` : '—'))}
+      </tr>`).join('') || '<tr><td colspan="7" class="empty-state">Žádní řidiči.</td></tr>'}
+      <tr style="font-weight:700;"><td>CELKEM</td><td></td><td></td><td></td><td></td><td></td>${td(kc(suma.odmena))}</tr>
+    </tbody></table>
+    <p class="csub" style="margin:10px 0 0;">Odměna / náklad = odměny na trasách PNS (podle nastavení trasy) + Eon (${EON_KC_ZA_DEN} Kč/den) + náklad na řidiče z financí jízd velké dopravy.</p>`;
+  } else if (tab === 'trasy') {
+    const radky = PNS_ROUTES.map(r => prehledTrasa(r, dny));
+    const s = radky.reduce((a, x) => ({ prijem: a.prijem + x.prijem, naklady: a.naklady + x.naklady, km: a.km + x.km }), { prijem: 0, naklady: 0, km: 0 });
+    const [y, m] = mesic.split('-').map(Number);
+    const eonN = eonPocetDnuMesice(y, m - 1);
+    tabulka = `<table class="data-table"><thead><tr><th>Trasa</th><th>Stálý řidič</th>${th('Dní odjeto', 1)}${th('Km', 1)}${th('Příjem', 1)}${th('Náklady', 1)}${th('Zisk', 1)}${th('Výjimky', 1)}</tr></thead><tbody>
+      ${radky.map(x => `<tr style="cursor:pointer;" onclick="prehledOtevri('mala-doprava','openTrasaDetail','${x.route}')" title="Otevřít detail trasy">
+        <td><b>${x.route}</b>${!x.cfg.cenovyModel || (x.prijem === 0 && x.odjeto) ? ' <span title="Chybí cena" style="color:var(--amber);">⚠</span>' : ''}</td>
+        <td>${x.cfg.stalyRidic || '<span style="color:var(--amber);">bez řidiče</span>'}</td>
+        ${td(`<b>${x.odjeto}</b>${x.nejelo ? ` <span style="color:var(--red); font-size:11.5px;">(${x.nejelo}× nejelo)</span>` : ''}`)}
+        ${td(x.km.toLocaleString('cs-CZ'))}${td(kc(x.prijem))}${td(kc(x.naklady))}${td(zbarvi(x.zisk))}${td(x.vyjimek || '—')}
+      </tr>`).join('')}
+      <tr><td><b>20001+ (Eon)</b></td><td>${eonRidiciJmena().join(', ') || '—'}</td>${td(`<b>${eonN}</b>`)}${td('—')}${td('<span style="color:var(--muted);">paušál</span>')}${td(kc(eonN * EON_KC_ZA_DEN))}${td('—')}${td('—')}</tr>
+      <tr style="font-weight:700;"><td>CELKEM PNS</td><td></td><td></td>${td(s.km.toLocaleString('cs-CZ'))}${td(kc(s.prijem))}${td(kc(s.naklady))}${td(zbarvi(s.prijem - s.naklady))}<td></td></tr>
+    </tbody></table>`;
+  } else {
+    const radky = state.vozidla.map(v => vozidloStatistika(v, mesic));
+    tabulka = `<table class="data-table"><thead><tr><th>Vozidlo</th><th>STK / pojistka</th>${th('Km', 1)}${th('Jízd', 1)}${th('Tržby', 1)}${th('Náklady', 1)}${th('Zisk', 1)}<th>Spotřeba</th></tr></thead><tbody>
+      ${radky.map(r => {
+        const v = r.v, norma = +v.prumernaSpotreba || 0;
+        const spotr = r.skutecnaSpotreba ? `<b>${r.skutecnaSpotreba.toFixed(1)}</b> l/100${norma ? ` <span style="font-size:11.5px; color:${r.skutecnaSpotreba > norma * 1.1 ? 'var(--red)' : r.skutecnaSpotreba > norma * 1.03 ? 'var(--amber)' : 'var(--green)'};">(norma ${norma})</span>` : ''}` : (norma ? `<span style="color:var(--dim);">norma ${norma}</span>` : '—');
+        return `<tr style="cursor:pointer;" onclick="prehledOtevri('vozidla')" title="Otevřít vozidla">
+          <td><b>${v.spz}</b><div style="font-size:11.5px; color:var(--muted);">${v.znacka || v.typ || ''}${v.objemNadrze ? ` · nádrž ${v.objemNadrze} l` : ''}</div></td>
+          <td style="font-size:12px;">STK ${formatDate(v.stk)} ${termBadge(v.stk) || ''}<br>Poj. ${formatDate(v.pojistka)} ${termBadge(v.pojistka) || ''}</td>
+          ${td(r.km.toLocaleString('cs-CZ'))}${td(r.pocet + (r.bezFinanci ? ` <span style="color:var(--amber);">⚠${r.bezFinanci}</span>` : ''))}${td(kc(r.trzby))}${td(kc(r.naklady))}${td(zbarvi(r.zisk))}<td style="white-space:nowrap;">${spotr}</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="8" class="empty-state">Žádná vozidla.</td></tr>'}
+    </tbody></table>`;
+  }
+
+  const zalozky = [['ridici', '👷 Řidiči'], ['trasy', '📰 Trasy'], ['vozidla', '🚛 Vozidla']];
+  return `
+    <div class="card-panel" style="margin-bottom:20px;" id="prehledKarta">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+        <div>
+          <h3 style="margin-bottom:4px;">📊 Přehled provozu</h3>
+          <p class="csub" style="margin-bottom:0;">Řidiči, trasy a vozidla za zvolený měsíc — čísla se průběžně aktualizují, jak řidiči zapisují. Klik na řádek otevře detail.</p>
+        </div>
+        <select onchange="prehledNastav('Mesic', this.value)" style="max-width:200px;">
+          ${posledni12Mesicu().map(m => `<option value="${m.value}" ${m.value === mesic ? 'selected' : ''}>${m.label}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+        ${zalozky.map(([k, n]) => `<button class="btn ${tab === k ? 'btn-primary' : 'btn-ghost'} btn-sm" onclick="prehledNastav('Tab', '${k}')">${n}</button>`).join('')}
+      </div>
+      <div style="overflow-x:auto;">${tabulka}</div>
     </div>`;
 }
 
