@@ -599,7 +599,7 @@ function prehledTrasa(route, dny) {
 
 function renderPrehledProvozu() {
   const mesic = prehledMesic(), tab = window._prehledTab;
-  const dny = prehledJizdniDny(mesic);
+  const dny = prehledJizdniDny(mesic).filter(iso => iso <= toISO(new Date()));   // skutečně odjeté dny (do dneška)
   const kc = (n) => Math.round(n).toLocaleString('cs-CZ') + ' Kč';
   const zbarvi = (n) => `<b style="color:${n >= 0 ? 'var(--green)' : 'var(--red)'};">${kc(n)}</b>`;
   const th = (t, p) => `<th${p ? ' style="text-align:right"' : ''}>${t}</th>`;
@@ -676,6 +676,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 18, datum: '2026-11-12', text: 'Malá doprava: počty odjetých dní se počítají do dneška (listopad: odjeto X z 25), plán měsíce zůstává vedle.' },
   { id: 17, datum: '2026-11-12', text: 'Business karta zkompaktněna a doplněna o sloupcové grafy (podle částí provozu a posledních 6 měsíců).' },
   { id: 16, datum: '2026-11-12', text: 'Dashboard: Business karta — cashflow, náklady a ziskovost za kalendářní měsíc průběžně (velká doprava, PNS, Eon, fixní náklady).' },
   { id: 15, datum: '2026-11-12', text: 'Přibyla vozidla (dodávky pro malou dopravu, DAF LF a přípojný vlek pro velkou); u vozidla jde nastavit dopravu a řidiče.' },
@@ -2300,7 +2301,7 @@ function malaDopravaRidicMesic(jmeno) {
   let dnyOdjeto = 0, kmCelkem = 0, zastupy = 0;
   for (let d=1; d<=daysInMonth; d++) {
     const iso = toISO(new Date(year, month, d));
-    if (!isDrivingDay(iso)) continue;
+    if (!isDrivingDay(iso) || iso > toISO(now)) continue;
     let jelDnes = false;
     PNS_ROUTES.forEach(route => {
       const eff = efektivniTrasaDen(route, iso);
@@ -2715,6 +2716,22 @@ function vicenakladyObjizdekMesic(year, month, daysInMonth) {
   return { radky, sumKm: radky.reduce((s, r) => s + r.km, 0), sumVicenaklad: radky.reduce((s, r) => s + r.vicenaklad, 0) };
 }
 
+// Součty PNS za měsíc ('RRRR-MM') pro jízdní dny do data cutIso včetně: počet dnů, příjem, náklady, dny s výjimkou
+function pnsStatMesice(mesic, cutIso) {
+  const out = { dny: 0, prijem: 0, naklady: 0, vyjimek: 0 };
+  prehledJizdniDny(mesic).filter(iso => iso <= cutIso).forEach(iso => {
+    out.dny++;
+    out.prijem += vypocetPrijemDne(iso);
+    out.naklady += vypocetOdhadNakladuDne(iso);
+    const rec = state.malaDoprava[iso];
+    if (rec) {
+      out.naklady += (+rec.nakladyRidic || 0) + (+rec.nakladyAuto || 0) + (+rec.nakladyOstatni || 0);
+      if (Object.keys(denniVyjimky(iso)).length > 0) out.vyjimek++;
+    }
+  });
+  return out;
+}
+
 function renderMalaDoprava() {
   const now = new Date();
   const viewDate = new Date(now.getFullYear(), now.getMonth() + malaDopravaMonthOffset, 1);
@@ -2724,21 +2741,11 @@ function renderMalaDoprava() {
   // Statistika aktuálního zobrazeného měsíce — počítá se automaticky pro KAŽDÝ jízdní den,
   // i když ho Jarda nikdy neotevřel (výchozí nastavení tras stačí)
   const daysInMonth = new Date(year, month+1, 0).getDate();
-  let drivingDays = 0, exceptionDays = 0;
-  let sumPrijem = 0, sumNaklady = 0;
   const todayIso = toISO(now);
-  for (let d=1; d<=daysInMonth; d++) {
-    const iso = toISO(new Date(year, month, d));
-    if (!isDrivingDay(iso)) continue;
-    drivingDays++;
-    sumPrijem += vypocetPrijemDne(iso);
-    sumNaklady += vypocetOdhadNakladuDne(iso);
-    const rec = state.malaDoprava[iso];
-    if (rec) {
-      sumNaklady += (+rec.nakladyRidic||0) + (+rec.nakladyAuto||0) + (+rec.nakladyOstatni||0);
-      if (Object.keys(denniVyjimky(iso)).length > 0) exceptionDays++;
-    }
-  }
+  // skutečně odjeté dny = jízdní dny do dneška (včetně); plán = celý měsíc
+  const mesicIso = `${year}-${String(month + 1).padStart(2, '0')}`;
+  const odjeto = pnsStatMesice(mesicIso, todayIso), plan = pnsStatMesice(mesicIso, '9999-12-31');
+  const drivingDays = odjeto.dny, exceptionDays = odjeto.vyjimek, sumPrijem = odjeto.prijem, sumNaklady = odjeto.naklady;
   const sumZisk = sumPrijem - sumNaklady;
   const marze = sumPrijem > 0 ? (sumZisk/sumPrijem*100).toFixed(1) : '0.0';
   const vic = vicenakladyObjizdekMesic(year, month, daysInMonth);
@@ -2776,7 +2783,7 @@ function renderMalaDoprava() {
 
     <div class="card-panel" style="margin-bottom:20px;">
       <h3>💰 Ziskovost — ${monthNames[month]} ${year}</h3>
-      <p class="csub">Počítá se automaticky ze všech ${drivingDays} jízdních dnů podle nastavení tras. ${exceptionDays>0?`${exceptionDays} dnů má zapsanou výjimku (objížďka, zástup, nejelo).`:'Zatím žádné výjimky.'}</p>
+      <p class="csub">Skutečně odjeto <b>${drivingDays}</b> z <b>${plan.dny}</b> jízdních dnů měsíce (do dneška včetně). ${exceptionDays>0?`${exceptionDays} dnů má zapsanou výjimku (objížďka, zástup, nejelo). `:''}Plán celého měsíce: příjem ${plan.prijem.toLocaleString('cs-CZ')} Kč, náklady ${plan.naklady.toLocaleString('cs-CZ')} Kč, zisk ${(plan.prijem-plan.naklady).toLocaleString('cs-CZ')} Kč.</p>
       <div class="metrics" style="margin-bottom:0;">
         <div class="metric"><div class="m-label">Příjmy</div><div class="m-value">${sumPrijem.toLocaleString('cs-CZ')} Kč</div></div>
         <div class="metric"><div class="m-label">Náklady (odhad)</div><div class="m-value">${sumNaklady.toLocaleString('cs-CZ')} Kč</div></div>
@@ -3383,9 +3390,11 @@ window.openTrasaDetail = function(route) {
   let dnyJizdnich = 0, kmZakladCelkem = 0, kmObjizdkaCelkem = 0, prijemCelkem = 0, dnyNejelo = 0;
   const vyjimkyList = [];
   const ridicPocty = {};
+  const dnesIso = toISO(now);
+  const planDni = prehledJizdniDny(`${year}-${String(month + 1).padStart(2, '0')}`).length;
   for (let d=1; d<=daysInMonth; d++) {
     const iso = toISO(new Date(year, month, d));
-    if (!isDrivingDay(iso)) continue;
+    if (!isDrivingDay(iso) || iso > dnesIso) continue;
     const eff = efektivniTrasaDen(route, iso);
     if (eff.nejelo) { dnyNejelo++; if (eff.maVyjimku) vyjimkyList.push({ iso, extra:0, ridic: eff.ridic||'—', nejelo:true }); continue; }
     dnyJizdnich++;
@@ -3450,9 +3459,9 @@ window.openTrasaDetail = function(route) {
       <button type="button" class="btn btn-ghost btn-sm" id="btnTrasaKopirovat">Použít cenu na všechny trasy</button>
     </div>
 
-    <div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin-bottom:10px; padding-top:14px; border-top:1px solid var(--border-c);">Přehled — ${monthNames[month]} ${year}</div>
+    <div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin-bottom:10px; padding-top:14px; border-top:1px solid var(--border-c);">Přehled — ${monthNames[month]} ${year} (do dneška)</div>
     <div class="metrics" style="margin-bottom:16px;">
-      <div class="metric"><div class="m-label">Dní odjeto</div><div class="m-value">${dnyJizdnich}</div>${dnyNejelo>0?`<div class="m-delta" style="color:var(--red);">${dnyNejelo}× nejelo</div>`:''}</div>
+      <div class="metric"><div class="m-label">Dní odjeto</div><div class="m-value">${dnyJizdnich}</div><div class="m-delta neutral">z ${planDni} v měsíci</div>${dnyNejelo>0?`<div class="m-delta" style="color:var(--red);">${dnyNejelo}× nejelo</div>`:''}</div>
       <div class="metric"><div class="m-label">Km celkem</div><div class="m-value">${(kmZakladCelkem+kmObjizdkaCelkem).toLocaleString('cs-CZ')}</div>${kmObjizdkaCelkem>0?`<div class="m-delta neutral">z toho ${kmObjizdkaCelkem} km objížďky</div>`:''}</div>
       <div class="metric"><div class="m-label">Příjem</div><div class="m-value" style="color:var(--green);">${prijemCelkem.toLocaleString('cs-CZ')} Kč</div></div>
       <div class="metric"><div class="m-label">Náklady</div><div class="m-value">${nakladyCelkem.toLocaleString('cs-CZ')} Kč</div><div class="m-delta neutral">odměna řidiče + ostatní</div></div>
@@ -3543,7 +3552,7 @@ function exportMalaDopravaMesicCSV() {
     let dnyOdjeto=0, dnyNejelo=0, kmZaklad=0, kmObjizdka=0, prijem=0;
     for (let d=1; d<=daysInMonth; d++) {
       const iso = toISO(new Date(year, month, d));
-      if (!isDrivingDay(iso)) continue;
+      if (!isDrivingDay(iso) || iso > toISO(new Date())) continue;   // jen skutečně odjeté dny (do dneška)
       const eff = efektivniTrasaDen(route, iso);
       if (eff.nejelo) { dnyNejelo++; continue; }
       dnyOdjeto++;
