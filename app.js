@@ -469,41 +469,75 @@ function renderZalohaStatus() {
   return `<p style="font-size:12.5px; color:var(--muted);">Poslední záloha: ${datumText} (${predText})</p>`;
 }
 
-// Počet jízd za každý kalendářní měsíc (od prvního měsíce s jízdou po aktuální, nejnovější nahoře).
-// Řidič vidí svoje, majitel a vedoucí dopravy všechny a mohou si vybrat jednoho řidiče.
+// Počet jízd za každý kalendářní měsíc, rozdělený na velkou dopravu vnitro (ČR), velkou dopravu mimo ČR, malou dopravu PNS a Eon
+// (od prvního měsíce s daty po aktuální, nejnovější nahoře). Řidič vidí svoje, majitel a vedoucí dopravy všechny a mohou filtrovat.
+const PROVOZ_OD = '2026-10-20';   // ostrý provoz — dřívější dny se do odjetých dní PNS nepočítají
+
+// Odjeté dny PNS za měsíc 'RRRR-MM' (do dneška včetně). fid = id řidiče, nebo null = všichni.
+// Vrací { dny, jizdy } (jizdy = počet jízd tras), nebo null, když to tahle role nezjistí (trasy a výjimky vidí jen majitel).
+function pnsDnyMesice(k, fid) {
+  const dnes = toISO(new Date());
+  const dny = prehledJizdniDny(k).filter(iso => iso <= dnes && iso >= PROVOZ_OD);
+  if (state.role === 'owner') {
+    const jm = fid ? (state.ridici.find(r => String(r.id) === fid) || {}).jmeno : null;
+    if (fid && !jm) return { dny: 0, jizdy: 0 };
+    let d = 0, j = 0;
+    dny.forEach(iso => {
+      let jel = 0;
+      PNS_ROUTES.forEach(route => { const eff = efektivniTrasaDen(route, iso); if (!eff.nejelo && (!jm || eff.ridic === jm)) jel++; });
+      if (jel) { d++; j += jel; }
+    });
+    return { dny: d, jizdy: j };
+  }
+  // řidič a vedoucí dopravy: jen vlastní trasa, odhad podle plánu (zástupy a výjimky nezná)
+  const trasy = (sync.me && sync.me.mojeTrasy) || [];
+  if (fid && fid !== String(state.driverId)) return null;
+  if (state.role === 'dispecer' && !fid) return null;
+  return trasy.length ? { dny: dny.length, jizdy: dny.length * trasy.length } : { dny: 0, jizdy: 0 };
+}
+
 function jizdyMesiceRadky() {
-  let list = mojeJizdy();
   const f = window._jizdyMesiceRidic;
-  if (f && f !== 'vse') list = list.filter(j => String(j.driverId) === f);
+  const fid = f && f !== 'vse' ? f : null;
+  let list = mojeJizdy();
+  if (fid) list = list.filter(j => String(j.driverId) === fid);
   const map = {};
+  const mesic = (k) => map[k] || (map[k] = { cz: 0, eu: 0, km: 0, eon: 0 });
   list.forEach(j => {
     const k = String(j.datum || '').slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(k)) return;
-    const m = map[k] || (map[k] = { pocet: 0, km: 0 });
-    m.pocet++; m.km += +j.km || 0;
+    const m = mesic(k);
+    if ((j.typ || 'cz') === 'eu') m.eu++; else m.cz++;
+    m.km += +j.km || 0;
   });
-  // Dny trasy 20001+ (Eon) se počítají jako jízdy (řidička je zaškrtává v kalendáři, ne v Evidenci jízd)
-  const fid = f && f !== 'vse' ? f : null;
+  // dny trasy 20001+ (Eon) — řidička je zaškrtává v kalendáři, ne v Evidenci jízd
   const zahrnoutEon = state.role === 'owner'
     ? (!fid || !!(state.ridici.find(r => String(r.id) === fid) || {}).eon)
     : !!(sync.me && sync.me.eonRidic) && (!fid || fid === String(state.driverId));
   if (zahrnoutEon) {
     Object.entries(state.eonDny || {}).forEach(([k, rec]) => {
       const n = Object.keys((rec && rec.dny) || {}).length;
-      if (!n || !/^\d{4}-\d{2}$/.test(k)) return;
-      const m = map[k] || (map[k] = { pocet: 0, km: 0 });
-      m.pocet += n; m.eon = n;
+      if (n && /^\d{4}-\d{2}$/.test(k)) mesic(k).eon = n;
     });
   }
   const now = new Date();
-  const prvni = Object.keys(map).sort()[0] || toISO(now).slice(0, 7);
+  const aktualni = toISO(now).slice(0, 7);
+  const prvni = [Object.keys(map).sort()[0] || aktualni, PROVOZ_OD.slice(0, 7)].sort()[0];
   const mesice = ['Leden','Únor','Březen','Duben','Květen','Červen','Červenec','Srpen','Září','Říjen','Listopad','Prosinec'];
+  const bunka = (n) => n ? `<b>${n}</b>` : '<span style="color:var(--dim);">—</span>';
   let html = '', d = new Date(now.getFullYear(), now.getMonth(), 1);
   for (let i = 0; i < 36; i++) {
     const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     if (k < prvni) break;
-    const m = map[k] || { pocet: 0, km: 0 };
-    html += `<tr><td>${mesice[d.getMonth()]} ${d.getFullYear()}</td><td style="text-align:right"><b>${m.pocet}</b>${m.eon ? ` <span style="color:var(--muted); font-size:11.5px;">(z toho ${m.eon} dní Eon)</span>` : ''}</td><td style="text-align:right">${m.km.toLocaleString('cs-CZ')} km</td></tr>`;
+    const m = map[k] || { cz: 0, eu: 0, km: 0, eon: 0 };
+    const p = pnsDnyMesice(k, fid);
+    const pns = !p ? '<span style="color:var(--dim);" title="Trasy a výjimky vidí jen majitel">—</span>'
+      : !p.dny ? '<span style="color:var(--dim);">—</span>'
+      : `<b title="${p.jizdy} jízd tras">${p.dny}</b> dní${p.jizdy !== p.dny ? ` <span style="color:var(--muted); font-size:11.5px;">(${p.jizdy} jízd tras)</span>` : ''}`;
+    html += `<tr><td>${mesice[d.getMonth()]} ${d.getFullYear()}${k === aktualni ? ' <span style="color:var(--muted); font-size:11px;">(do dneška)</span>' : ''}</td>
+      <td style="text-align:right">${bunka(m.cz)}</td><td style="text-align:right">${bunka(m.eu)}</td>
+      <td style="text-align:right">${pns}</td><td style="text-align:right">${m.eon ? `<b>${m.eon}</b> dní` : '<span style="color:var(--dim);">—</span>'}</td>
+      <td style="text-align:right">${m.km ? m.km.toLocaleString('cs-CZ') + ' km' : '<span style="color:var(--dim);">—</span>'}</td></tr>`;
     d = new Date(d.getFullYear(), d.getMonth() - 1, 1);
   }
   return html;
@@ -515,20 +549,26 @@ function renderJizdyPoMesicich(vidiVsechny) {
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
         <div>
           <h3 style="margin-bottom:4px;">📅 Počet jízd po měsících</h3>
-          <p class="csub" style="margin-bottom:0;">${vidiVsechny ? 'Jízdy z Evidence jízd a dny trasy Eon za každý kalendářní měsíc.' : 'Tvoje jízdy (u trasy Eon i zaškrtnuté dny) za každý kalendářní měsíc.'}</p>
+          <p class="csub" style="margin-bottom:0;">Velká doprava z Evidence jízd; malá doprava PNS a Eon jako odjeté dny do dneška${vidiVsechny ? '' : ' (tvoje)'}.</p>
         </div>
         ${vidiVsechny ? `<select id="jizdyMesiceRidic" style="max-width:240px;">
           <option value="vse">Všichni řidiči</option>
           ${state.ridici.map(r => `<option value="${r.id}" ${String(r.id) === f ? 'selected' : ''}>${r.jmeno}</option>`).join('')}
         </select>` : ''}
       </div>
-      <div style="max-height:320px; overflow-y:auto; margin-top:10px;">
-        <table class="data-table">
-          <thead><tr><th>Měsíc</th><th style="text-align:right">Počet jízd</th><th style="text-align:right">Najeto</th></tr></thead>
+      <div style="max-height:320px; overflow:auto; margin-top:10px;">
+        <table class="data-table" style="white-space:nowrap;">
+          <thead><tr><th>Měsíc</th><th style="text-align:right">🚚 Velká doprava vnitro (ČR)</th><th style="text-align:right">🌍 Velká doprava mimo ČR</th><th style="text-align:right">📰 Malá doprava PNS</th><th style="text-align:right">🚐 Eon</th><th style="text-align:right">Najeto (velká)</th></tr></thead>
           <tbody id="jizdyMesiceBody">${jizdyMesiceRadky()}</tbody>
         </table>
       </div>
     </div>`;
+}
+function bindJizdyMesice() {
+  document.getElementById('jizdyMesiceRidic')?.addEventListener('change', (e) => {
+    window._jizdyMesiceRidic = e.target.value;
+    document.getElementById('jizdyMesiceBody').innerHTML = jizdyMesiceRadky();
+  });
 }
 
 // ==========================================================
@@ -676,6 +716,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 19, datum: '2026-11-12', text: 'Dashboard a Evidence jízd: počet jízd po měsících rozdělený na velkou dopravu vnitro (ČR), mimo ČR, malou dopravu PNS (odjeté dny) a Eon; v Evidenci jízd filtr druhu dopravy.' },
   { id: 18, datum: '2026-11-12', text: 'Malá doprava: počty odjetých dní se počítají do dneška (listopad: odjeto X z 25), plán měsíce zůstává vedle.' },
   { id: 17, datum: '2026-11-12', text: 'Business karta zkompaktněna a doplněna o sloupcové grafy (podle částí provozu a posledních 6 měsíců).' },
   { id: 16, datum: '2026-11-12', text: 'Dashboard: Business karta — cashflow, náklady a ziskovost za kalendářní měsíc průběžně (velká doprava, PNS, Eon, fixní náklady).' },
@@ -1279,10 +1320,7 @@ function oznamNoveHlaseniObjizdek(noveZaznamy) {
 }
 
 function bindDashboard() {
-  document.getElementById('jizdyMesiceRidic')?.addEventListener('change', (e) => {
-    window._jizdyMesiceRidic = e.target.value;
-    document.getElementById('jizdyMesiceBody').innerHTML = jizdyMesiceRadky();
-  });
+  bindJizdyMesice();
   document.getElementById('dnesMalaDopravaCard')?.addEventListener('click', () => {
     document.querySelector('.nav-item[data-section="mala-doprava"]').click();
   });
@@ -1417,9 +1455,15 @@ function renderJizdy() {
       <div><h1>🛣️ Evidence jízd</h1><p>${isOwner ? 'Přehled všech jízd — filtruj, hledej, exportuj.' : state.role === 'dispecer' ? 'Přehled jízd za všechny řidiče — bez financí.' : 'Tvoje jízdy.'}</p></div>
       <div class="page-actions"><button class="btn btn-primary" id="btnAddJizda">+ Nová jízda</button></div>
     </div>
+    ${renderJizdyPoMesicich(isOwner || state.role === 'dispecer')}
     <div class="table-wrap">
       <div class="table-toolbar">
         <input type="text" id="jizdyFilter" placeholder="Hledat (řidič, trasa, vozidlo...)">
+        <select id="jizdyTyp">
+          <option value="">Všechny druhy dopravy</option>
+          <option value="cz">🚚 Velká doprava vnitro (ČR)</option>
+          <option value="eu">🌍 Velká doprava mimo ČR</option>
+        </select>
         <select id="jizdyMesic">
           <option value="">Všechny měsíce</option>
           ${posledni12Mesicu().map(m => `<option value="${m.value}">${m.label}</option>`).join('')}
@@ -1478,8 +1522,12 @@ function bindJizdy() {
     let list = mojeJizdy();
     if (q) list = list.filter(j => `${j.ridic} ${j.trasaOd} ${j.trasaDo} ${j.vozidlo} ${j.poznamka||''}`.toLowerCase().includes(q));
     if (m) list = list.filter(j => j.datum.startsWith(m));
+    const typ = document.getElementById('jizdyTyp').value;
+    if (typ) list = list.filter(j => (j.typ || 'cz') === typ);
     document.getElementById('jizdyBody').innerHTML = renderJizdyRows(list, isOwner);
   }
+  document.getElementById('jizdyTyp').addEventListener('change', applyFilter);
+  bindJizdyMesice();
   document.getElementById('jizdyFilter').addEventListener('input', applyFilter);
   document.getElementById('jizdyMesic').addEventListener('change', applyFilter);
 
@@ -1678,8 +1726,8 @@ function renderJizdaModal(vychoziTyp, zaJineho = false) {
           </div>
           <div class="form-row"><label>Typ dopravy *</label>
             <select name="typ" required>
-              <option value="cz" ${!jeEu?'selected':''}>🚚 Velká doprava CZ (vnitrostátní)</option>
-              <option value="eu" ${jeEu?'selected':''}>🌍 Velká doprava EU (mezinárodní)</option>
+              <option value="cz" ${!jeEu?'selected':''}>🚚 Velká doprava vnitro (ČR)</option>
+              <option value="eu" ${jeEu?'selected':''}>🌍 Velká doprava mimo ČR</option>
             </select>
           </div>
           <div class="form-row"><label>Vozidlo *</label>
