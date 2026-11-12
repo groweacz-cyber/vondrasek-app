@@ -238,6 +238,7 @@ function showApp() {
   renderSection('dashboard');
   inicializujZvonek();
   inicializujAsistentku();
+  spustCasPocasi();
   posliNotifikaceProUpozorneni();
   nastavStav(sync.stav);
   zacniSynchronizaci();
@@ -778,6 +779,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 25, datum: '2026-11-12', text: 'Horní lišta: digitální čas, datum a počasí v Dolním Třeboníně; zvoneček s popiskem; upozornění z Hlídače termínů s červeným připínáčkem a vykřičníkem.' },
   { id: 24, datum: '2026-11-12', text: 'AI asistentka (💬 vpravo dole): radí se systémem a ví, co kde je a jak se co počítá. Zapne se po vložení klíče GROQ_API_KEY do Vercelu.' },
   { id: 23, datum: '2026-11-12', text: 'Kompletní přehled: místo upozornění na PIN je Hlídač termínů. Přibyl měsíční termín Zaslání faktury PNS a.s. (jízdy a Eon svozy) s extra poznámkou k listopadu.' },
   { id: 22, datum: '2026-11-12', text: 'Výkaz trasy 20001+ k tisku / PDF je podklad pro plátce: cena 250 Kč za den, celkem k úhradě, bez jména řidiče.' },
@@ -841,6 +843,28 @@ function asistentkaHtml(text) {
   return String(text).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
 }
+// Čas, datum a počasí (Dolní Třebonín, jižní Čechy) v horní liště; počasí z Open-Meteo bez klíče, obnova po 15 minutách
+const POCASI_KODY = { 0: ['☀️', 'jasno'], 1: ['🌤️', 'skoro jasno'], 2: ['⛅', 'polojasno'], 3: ['☁️', 'zataženo'], 45: ['🌫️', 'mlha'], 48: ['🌫️', 'mrznoucí mlha'], 51: ['🌦️', 'mrholení'], 53: ['🌦️', 'mrholení'], 55: ['🌦️', 'silné mrholení'], 56: ['🌧️', 'mrznoucí mrholení'], 57: ['🌧️', 'mrznoucí mrholení'], 61: ['🌧️', 'slabý déšť'], 63: ['🌧️', 'déšť'], 65: ['🌧️', 'silný déšť'], 66: ['🌧️', 'mrznoucí déšť'], 67: ['🌧️', 'mrznoucí déšť'], 71: ['🌨️', 'slabé sněžení'], 73: ['🌨️', 'sněžení'], 75: ['❄️', 'silné sněžení'], 77: ['🌨️', 'sněhová zrna'], 80: ['🌦️', 'přeháňky'], 81: ['🌦️', 'přeháňky'], 82: ['⛈️', 'silné přeháňky'], 85: ['🌨️', 'sněhové přeháňky'], 86: ['🌨️', 'sněhové přeháňky'], 95: ['⛈️', 'bouřka'], 96: ['⛈️', 'bouřka s kroupami'], 99: ['⛈️', 'bouřka s kroupami'] };
+function spustCasPocasi() {
+  if (window._casSpusten) return;
+  window._casSpusten = true;
+  const tik = () => {
+    const d = new Date();
+    document.getElementById('casDigi').textContent = d.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    document.getElementById('casDatum').textContent = d.toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'numeric', year: 'numeric' });
+  };
+  tik(); setInterval(tik, 1000);
+  const pocasi = async () => {
+    try {
+      const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=48.82&longitude=14.39&current=temperature_2m,weather_code&timezone=Europe%2FPrague');
+      const j = (await r.json()).current;
+      const [ikona, popis] = POCASI_KODY[j.weather_code] || ['🌡️', ''];
+      document.getElementById('casPocasi').textContent = `${ikona} ${Math.round(j.temperature_2m)} °C ${popis} · Dolní Třebonín`;
+    } catch (e) { document.getElementById('casPocasi').textContent = ''; }
+  };
+  pocasi(); setInterval(pocasi, 15 * 60 * 1000);
+}
+
 function inicializujAsistentku() {
   const stare = document.getElementById('asistentkaWrap');
   if (state.role !== 'owner') { if (stare) stare.remove(); return; }
@@ -941,9 +965,9 @@ function renderTerminyKarta() {
       ${nejblizsi.length ? nejblizsi.map(x => {
         const extra = terminExtraPoznamka(x.t, x.due);
         return `<div style="display:flex; align-items:center; gap:12px; padding:9px 12px; background:var(--card); border-radius:var(--radius-sm); margin-bottom:6px; border-left:3px solid ${x.dny < 0 ? 'var(--red)' : x.urgent ? 'var(--amber)' : 'var(--border-c)'};">
-          <div style="flex:1; min-width:0; font-size:13px;"><b>${x.t.nazev}</b> <span style="color:var(--muted);">· ${formatDate(x.due)}</span>
+          <div style="flex:1; min-width:0; font-size:13px;"><span title="Upozornění">📍❗</span> <b>${x.t.nazev}</b> <span style="color:var(--muted);">· ${formatDate(x.due)}</span>
             ${x.t.poznamka ? `<div style="color:var(--muted); font-size:12px; margin-top:2px;">${x.t.poznamka}</div>` : ''}
-            ${extra ? `<div style="color:var(--amber); font-size:12.5px; margin-top:3px;">📌 ${extra}</div>` : ''}
+            ${extra ? `<div style="color:var(--amber); font-size:12.5px; margin-top:3px;">📍 ${extra}</div>` : ''}
           </div>
           ${terminBadge(x)}
           <button class="btn btn-primary btn-sm" onclick="terminSplnen(${x.t.id})">✓ Splněno</button>
@@ -969,7 +993,7 @@ function renderTerminy() {
         <thead><tr><th>Termín</th><th>Opakování</th><th>Nejbližší</th><th>Stav</th><th></th></tr></thead>
         <tbody>
           ${radky.length ? radky.map(x => `<tr style="${!x.due ? 'opacity:0.6;' : ''}">
-            <td><b>${x.t.nazev}</b>${x.t.poznamka ? `<div style="font-size:12px; color:var(--muted);">${x.t.poznamka}</div>` : ''}${terminExtraPoznamka(x.t, x.due) ? `<div style="font-size:12.5px; color:var(--amber); margin-top:3px;">📌 ${terminExtraPoznamka(x.t, x.due)}</div>` : ''}</td>
+            <td><span title="Upozornění">📍❗</span> <b>${x.t.nazev}</b>${x.t.poznamka ? `<div style="font-size:12px; color:var(--muted);">${x.t.poznamka}</div>` : ''}${terminExtraPoznamka(x.t, x.due) ? `<div style="font-size:12.5px; color:var(--amber); margin-top:3px;">📍 ${terminExtraPoznamka(x.t, x.due)}</div>` : ''}</td>
             <td>${terminPopis(x.t)}${x.t.predem !== undefined && x.t.predem !== '' ? `<div style="font-size:11.5px; color:var(--muted);">upozornit ${x.t.predem} dní předem</div>` : ''}</td>
             <td>${x.due ? formatDate(x.due) : '—'}</td>
             <td>${badge(x)}</td>
@@ -1558,7 +1582,7 @@ function ziskatVarovani() {
     const st = terminStav(t);
     if (!st.due || !st.urgent) return;
     const text = st.dny < 0 ? `Termín „${t.nazev}" prošel o ${-st.dny} dní (${formatDate(st.due)})` : st.dny === 0 ? `Termín „${t.nazev}" je dnes` : `Termín „${t.nazev}" za ${st.dny} dní (${formatDate(st.due)})`;
-    varovani.push({ ico: '⏰', text, level: st.dny <= 0 ? 'err' : 'warn', dny: st.dny });
+    varovani.push({ ico: '📍❗', text, level: st.dny <= 0 ? 'err' : 'warn', dny: st.dny });
   });
   return varovani;
 }

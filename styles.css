@@ -641,3 +641,13 @@ table.data-table {
 .asist-form input { flex: 1; min-width: 0; }
 .asist-form button { background: var(--purple); color: #fff; border: none; border-radius: 10px; padding: 0 14px; font-weight: 600; cursor: pointer; }
 @media print { .asist-btn, .asist-panel { display: none !important; } }
+
+/* čas, datum a počasí v horní liště; text u zvonečku */
+.topbar-cas { display: flex; align-items: baseline; gap: 10px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.topbar-cas b { font-family: 'Consolas', 'Courier New', monospace; font-size: 18px; letter-spacing: 1px; color: var(--white); font-weight: 700; }
+.topbar-cas #casPocasi { color: var(--white); }
+.bell-btn { display: flex; align-items: center; gap: 8px; }
+.bell-text { font-size: 12px; font-weight: 600; color: var(--amber); max-width: 190px; line-height: 1.2; text-align: left; }
+.bell-btn .bell-ic { color: var(--amber); }
+@media (max-width: 1100px) { .bell-text { display: none; } .topbar-cas #casDatum { display: none; } }
+@media (max-width: 700px) { .topbar-cas #casPocasi { display: none; } }
