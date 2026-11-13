@@ -378,6 +378,8 @@ function renderDashboard() {
 
     ${isOwner ? renderPrehledProvozu() : ''}
 
+    ${renderMapaKarta('vse')}
+
     ${isOwner || isDispecer ? renderDnesekMalaDoprava() : ''}
     ${isOwner || isDispecer ? renderHlaseniObjizdekOwnerCard() : renderHlaseniObjizdekDriverCard()}
 
@@ -780,6 +782,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 29, datum: '2026-11-13', text: 'Mapy tras (zdarma, bez klíče): v Kompletním přehledu a v Malé dopravě mapa se všemi trasami, každá jinou barvou s popisem, kudy jede; mapa dne v kalendáři; u linek mapa a u každé jízdy tlačítko 🗺️. Zastávky se zadávají u trasy (klik na číslo trasy) nebo u linky.' },
   { id: 28, datum: '2026-11-13', text: 'Jízdy: stav tachometru při výjezdu a příjezdu (km se spočítají samy, výjezd se předvyplní podle vozidla), časy výjezdu a příjezdu s dobou jízdy a linky (např. GW Jihotrans) s výběrem směru tam / zpět. PNS: řidič v hlášení zadá tachometr a appka spočítá najeté km za den i objížďku. Vozidla: aktuální stav tachometru a upozornění na servis podle najetých km.' },
   { id: 27, datum: '2026-11-12', text: 'Asistentka mluví ženským českým hlasem (Vlasta) ze serveru, takže stejně v každém prohlížeči.' },
   { id: 26, datum: '2026-11-12', text: 'Asistentka dostala tvář (video) a ženský hlas: při otevření pozdraví a odpovědi čte nahlas (zvuk jde vypnout 🔊).' },
@@ -1594,7 +1597,18 @@ function oznamNoveHlaseniObjizdek(noveZaznamy) {
   });
 }
 
+function renderMapaKarta(scope) {
+  if (state.role !== 'owner' && !mapaVrstvy(scope).length) return '';
+  return `
+    <div class="card-panel" style="margin-bottom:20px;">
+      <h3>🗺️ Mapa tras</h3>
+      <p class="csub">Každá trasa má svoji barvu a pod názvem popis, kudy jede. Zaškrtnutím v seznamu trasu zobrazíš nebo skryješ, klik na čáru nebo číslo zastávky ukáže detail.</p>
+      <div class="mapa-panel-misto" data-scope="${scope}"></div>
+    </div>`;
+}
+
 function bindDashboard() {
+  mapaPanelyInit(document.getElementById('content'));
   bindJizdyMesice();
   document.getElementById('dnesMalaDopravaCard')?.addEventListener('click', () => {
     document.querySelector('.nav-item[data-section="mala-doprava"]').click();
@@ -1770,7 +1784,7 @@ function renderJizdyRows(list, isOwner, zobrazitTyp = true) {
     return `
     <tr>
       <td>${formatDate(j.datum)}</td><td>${j.ridic}</td><td>${j.vozidlo}</td>
-      <td>${typBadge}${j.trasaOd} → ${j.trasaDo}${(j.linka || j.tachDo || j.dobaMin) ? `<div style="font-size:11.5px; color:var(--dim); margin-top:2px;">${[j.linka ? '🛣️ ' + escH(j.linka) : '', j.tachDo ? 'tach. ' + (+j.tachOd).toLocaleString('cs-CZ') + ' → ' + (+j.tachDo).toLocaleString('cs-CZ') : '', j.dobaMin ? '⏱ ' + formatDoba(j.dobaMin) + ' (' + j.casOd + '–' + j.casDo + ')' : ''].filter(Boolean).join(' · ')}</div>` : ''}</td>
+      <td><button class="btn btn-ghost btn-sm" style="padding:1px 7px; margin-right:6px;" onclick="jizdaMapa(${j.id})" title="Mapa trasy">🗺️</button>${typBadge}${j.trasaOd} → ${j.trasaDo}${(j.linka || j.tachDo || j.dobaMin) ? `<div style="font-size:11.5px; color:var(--dim); margin-top:2px;">${[j.linka ? '🛣️ ' + escH(j.linka) : '', j.tachDo ? 'tach. ' + (+j.tachOd).toLocaleString('cs-CZ') + ' → ' + (+j.tachDo).toLocaleString('cs-CZ') : '', j.dobaMin ? '⏱ ' + formatDoba(j.dobaMin) + ' (' + j.casOd + '–' + j.casDo + ')' : ''].filter(Boolean).join(' · ')}</div>` : ''}</td>
       <td style="text-align:right">${j.km}</td>
       <td style="color:var(--muted);font-size:12.5px;">${j.poznamka||'—'}</td>
       ${isOwner?`<td style="text-align:right">${ziskBadge(j.financni)}</td>
@@ -2056,7 +2070,8 @@ function renderLinkyKarta() {
         <button class="btn btn-ghost btn-sm" onclick="editLinka()">+ Nová linka</button>
       </div>
       <p class="csub">Nastav linku jednou (název, odkud, kam, km). Řidič pak ve formuláři jízdy jen vybere linku a směr a trasa i km se doplní samy. Finance se zadávají jako u každé jízdy (💰 Finance).</p>
-      ${radky ? `<table class="data-table"><thead><tr><th>Linka</th><th>Trasa</th><th style="text-align:right">km</th><th style="text-align:right">Jízd</th><th></th></tr></thead><tbody>${radky}</tbody></table>` : `<div class="empty-state"><div class="empty-ic">🛣️</div>Zatím žádná linka.</div>`}
+      ${radky ? `<table class="data-table"><thead><tr><th>Linka</th><th>Trasa</th><th style="text-align:right">km</th><th style="text-align:right">Jízd</th><th></th></tr></thead><tbody>${radky}</tbody></table>
+      <div class="mapa-panel-misto" data-scope="linky" style="margin-top:14px;"></div>` : `<div class="empty-state"><div class="empty-ic">🛣️</div>Zatím žádná linka.</div>`}
     </div>`;
 }
 function renderLinkaModal(l = {}) {
@@ -2072,6 +2087,8 @@ function renderLinkaModal(l = {}) {
             <div class="form-row"><label>Odkud *</label><input type="text" name="odkud" required value="${escH(l.odkud || '')}"></div>
             <div class="form-row"><label>Kam *</label><input type="text" name="kam" required value="${escH(l.kam || '')}"></div>
           </div>
+          <div class="form-row"><label>Přes zastávky (nepovinné, jedna na řádek)</label><textarea name="pres" rows="2" placeholder="např. Třeboň, náměstí">${escH(l.pres || '')}</textarea>
+            <span style="font-size:11px; color:var(--dim); margin-top:4px; display:block;">Po uložení appka najde trasu na mapě; názvy míst piš i s městem.</span></div>
           <div class="form-row"><label>Vzdálenost (km, jedním směrem)</label><input type="number" name="km" min="0" step="1" value="${l.km || ''}" placeholder="doplní se do jízdy, když řidič nezadá tachometr"></div>
           <div class="modal-actions">
             <button type="button" class="btn btn-ghost" onclick="closeModal('linkaModal')">Zrušit</button>
@@ -2083,10 +2100,23 @@ function renderLinkaModal(l = {}) {
 }
 function wireLinkaModal() {
   const form = document.getElementById('linkaForm'); if (!form) return;
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(form), editId = fd.get('editId');
-    const data = { nazev: String(fd.get('nazev')).trim(), odkud: String(fd.get('odkud')).trim(), kam: String(fd.get('kam')).trim(), km: +fd.get('km') || 0 };
+    const data = { nazev: String(fd.get('nazev')).trim(), odkud: String(fd.get('odkud')).trim(), kam: String(fd.get('kam')).trim(), pres: String(fd.get('pres') || '').trim(), km: +fd.get('km') || 0, mapa: null, mapaKlic: '' };
+    const puvodni = editId ? state.linky.find(x => x.id === +editId) : null;
+    const texty = [data.odkud, ...mapaRadky(data.pres), data.kam], klic = texty.join('\n');
+    if (puvodni && puvodni.mapa && puvodni.mapaKlic === klic) { data.mapa = puvodni.mapa; data.mapaKlic = klic; }
+    else {
+      const tl = form.querySelector('button[type="submit"]'), text = tl.textContent;
+      tl.disabled = true;
+      try {
+        const r = await mapaSestav(texty, (t) => { tl.textContent = t; });
+        if (r.mapa) { data.mapa = r.mapa; data.mapaKlic = klic; if (!data.km && r.mapa.km) data.km = Math.round(r.mapa.km); }
+        if (r.nenalezeno.length) alert('Na mapě jsem nenašel: ' + r.nenalezeno.join(', ') + '. Linka se uloží, zkus upřesnit název místa (i s městem).');
+      } catch (err) { /* linka se uloží i bez mapy */ }
+      tl.disabled = false; tl.textContent = text;
+    }
     if (editId) { const i = state.linky.findIndex(x => x.id === +editId); if (i >= 0) state.linky[i] = { ...state.linky[i], ...data }; }
     else state.linky.push({ id: Date.now(), ...data });
     saveState(); closeModal('linkaModal'); renderSection('velka-cz');
@@ -2341,7 +2371,7 @@ function bindVelkaDoprava(typ) {
 
   bindJizdaForm(sekce);
   if (isOwner) wireFinanceModal();
-  if (isOwner && typ === 'cz') wireLinkaModal();
+  if (isOwner && typ === 'cz') { wireLinkaModal(); mapaPanelyInit(document.getElementById('content')); }
 }
 
 // Export jízd dané kategorie (CZ/EU) i s financemi — podklad pro účetnictví/fakturaci
@@ -3321,6 +3351,8 @@ function renderMalaDoprava() {
       </div>
     </div>
 
+    ${renderMapaKarta('pns')}
+
     ${renderEonKarta(year, month, 'mala')}
 
     <div class="card-panel" style="margin-bottom:20px;">
@@ -3753,6 +3785,8 @@ window.openMalaDopravaDen = function(iso) {
       <span style="font-size:13px; font-weight:600;">Celý den nejelo (sníh, kalamita, PNS nevydala)</span>
     </label>
 
+    <div class="mapa-panel-misto" data-scope="den:${iso}" style="margin-bottom:14px;"></div>
+
     <div id="malaRoutesList" style="display:flex; flex-direction:column; gap:6px; margin-bottom:16px; ${PNS_ROUTES.every(r => vyjimky[r] && vyjimky[r].nejelo) ? 'opacity:0.4;' : ''}">
       ${PNS_ROUTES.map(route => {
         const cfg = state.pnsRouteConfig[route];
@@ -3765,7 +3799,7 @@ window.openMalaDopravaDen = function(iso) {
         <div class="mala-route-row" data-route="${route}" style="background:var(--card); border-radius:8px; border:1px solid ${maVyjimku?'var(--amber)':'var(--border-c)'};">
           <div style="display:flex; align-items:center; gap:10px; padding:9px 12px;">
             <div style="flex:0 0 auto; min-width:56px;">
-              <span style="font-weight:700; font-size:13px;">${route}</span>
+              <span style="font-weight:700; font-size:13px;"><span class="mapa-tecka" style="background:${barvaTrasy(PNS_ROUTES.indexOf(route))}"></span>${route}</span>
               <div style="font-size:10.5px; color:var(--dim);">${cenaInfo}</div>
             </div>
             <div style="flex:1; font-size:12.5px; color:var(--ice);">
@@ -3820,6 +3854,8 @@ window.openMalaDopravaDen = function(iso) {
       <button type="button" class="btn btn-primary" id="btnMalaUlozit">Uložit</button>
     </div>
   `;
+
+  mapaPanelyInit(document.getElementById('malaDopravaContent'));
 
   // Rozbalení/sbalení editace výjimky u trasy
   document.querySelectorAll('.mala-toggle-edit').forEach(btn => {
@@ -4031,6 +4067,18 @@ window.openTrasaDetail = function(route) {
       <input type="number" id="trasaOdhadNakladu" step="1" min="0" value="${cfg.odhadNakladuZaDen||''}">
     </div>
 
+    <div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin:6px 0 10px; padding-top:14px; border-top:1px solid var(--border-c);">Mapa trasy</div>
+    <div class="form-row">
+      <label>Zastávky trasy (jedna na řádek, v pořadí jízdy)</label>
+      <textarea id="trasaZastavky" rows="4" placeholder="např. Sklad PNS, České Budějovice&#10;Třeboň, náměstí&#10;Suchdol nad Lužnicí">${escH(cfg.zastavky || '')}</textarea>
+      <span style="font-size:11.5px; color:var(--dim); margin-top:4px; display:block;">Adresa nebo název místa. U okružní trasy napiš jako poslední znovu výchozí místo.</span>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
+      <button type="button" class="btn btn-ghost btn-sm" id="btnTrasaMapa">🗺️ Najít trasu na mapě</button>
+      <span id="trasaMapaStav" class="mapa-stav"></span>
+    </div>
+    <div id="trasaMapaMisto" style="margin-bottom:18px;"></div>
+
     <div class="modal-actions" style="margin-bottom:12px;">
       <button type="button" class="btn btn-primary" id="btnTrasaUlozit">Uložit nastavení</button>
     </div>
@@ -4069,9 +4117,40 @@ window.openTrasaDetail = function(route) {
     document.getElementById('poleParusal').style.display = jePausal ? 'flex' : 'none';
   }
 
+  const vykresliTrasuNaMape = (mapa) => {
+    const misto = document.getElementById('trasaMapaMisto');
+    if (!mapa) { misto.innerHTML = ''; return; }
+    misto.innerHTML = `<div class="mapa-box" style="height:280px;"></div>
+      <div class="mapa-popis" style="margin-top:8px;">${popisTrasy(mapa)}</div>
+      ${mapa.km ? `<p style="font-size:12.5px; color:var(--muted); margin:8px 0 0;">Trasa po silnicích: <b>${mapa.km.toLocaleString('cs-CZ')} km</b>. <button type="button" class="btn btn-ghost btn-sm" id="btnPouzitKmZMapy">Použít jako km trasy za den</button></p>` : ''}`;
+    mapaVykresli(misto.querySelector('.mapa-box'), [{ id: 't', nazev: `Trasa ${route}`, barva: barvaTrasy(PNS_ROUTES.indexOf(route)), body: mapa.body, linie: mapa.linie }]);
+    const b = document.getElementById('btnPouzitKmZMapy');
+    if (b) b.addEventListener('click', () => { document.getElementById('trasaKmZaDen').value = Math.round(mapa.km); });
+  };
+  vykresliTrasuNaMape(cfg.mapa);
+  document.getElementById('btnTrasaMapa').addEventListener('click', async () => {
+    const stavEl = document.getElementById('trasaMapaStav'), btn = document.getElementById('btnTrasaMapa');
+    const radky = mapaRadky(document.getElementById('trasaZastavky').value);
+    if (radky.length < 2) { stavEl.textContent = 'Zadej aspoň dvě zastávky.'; return; }
+    btn.disabled = true;
+    try {
+      const r = await mapaSestav(radky, (t) => { stavEl.textContent = t; });
+      if (!r.mapa) { stavEl.textContent = 'Nenašel jsem aspoň dvě místa (' + r.nenalezeno.join(', ') + '). Zkus přesnější název.'; return; }
+      state.pnsRouteConfig[route] = { ...state.pnsRouteConfig[route], zastavky: radky.join('\n'), mapa: r.mapa };
+      saveState();
+      stavEl.textContent = r.nenalezeno.length ? 'Hotovo, ale nenašel jsem: ' + r.nenalezeno.join(', ') : 'Hotovo — mapa je uložená.';
+      vykresliTrasuNaMape(r.mapa);
+    } finally { btn.disabled = false; }
+  });
+
   document.getElementById('btnTrasaUlozit').addEventListener('click', () => {
     const cenovyModel = document.getElementById('modelPausal').checked ? 'pausal' : 'km';
+    const zastavkyText = mapaRadky(document.getElementById('trasaZastavky').value).join('\n');
+    const aktualni = state.pnsRouteConfig[route] || {};
     state.pnsRouteConfig[route] = {
+      ...aktualni,
+      zastavky: zastavkyText,
+      mapa: zastavkyText === (aktualni.zastavky || '') ? aktualni.mapa : undefined,
       cenovyModel,
       cenaZaKm: +document.getElementById('trasaCenaZaKm').value || 0,
       kmZaDen: +document.getElementById('trasaKmZaDen').value || 0,
@@ -4104,6 +4183,7 @@ window.openTrasaDetail = function(route) {
 };
 
 function bindMalaDoprava() {
+  mapaPanelyInit(document.getElementById('content'));
   document.getElementById('btnMesicPred').addEventListener('click', () => { malaDopravaMonthOffset--; renderSection('mala-doprava'); });
   document.getElementById('btnMesicDal').addEventListener('click', () => { malaDopravaMonthOffset++; renderSection('mala-doprava'); });
   document.getElementById('btnExportMalaMesic').addEventListener('click', exportMalaDopravaMesicCSV);
