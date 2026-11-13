@@ -33,10 +33,10 @@ async function ctiZmeny(req, res, q, rel) {
     : rel.role === 'dispecer'
     // Vedoucí dopravy vidí jízdy/tankování/hlášení objížděk za VŠECHNY řidiče (bez financí), ne jen svoje.
     ? await q(`SELECT coll, id, data, deleted, seq FROM vnd_records
-               WHERE seq > $1 AND (coll IN ('vozidla', 'ridici', 'jizdy', 'tankovani', 'hlaseniObjizdek') OR (coll = 'eonDny' AND $2::boolean))
+               WHERE seq > $1 AND (coll IN ('vozidla', 'ridici', 'linky', 'jizdy', 'tankovani', 'hlaseniObjizdek') OR (coll = 'eonDny' AND $2::boolean))
                ORDER BY seq LIMIT ` + STRANKA, [since, jeEon])
     : await q(`SELECT coll, id, data, deleted, seq FROM vnd_records
-               WHERE seq > $1 AND (coll IN ('vozidla', 'ridici') OR (coll IN ('jizdy', 'tankovani', 'hlaseniObjizdek') AND data->>'driverId' = $2) OR (coll = 'eonDny' AND $3::boolean))
+               WHERE seq > $1 AND (coll IN ('vozidla', 'ridici', 'linky') OR (coll IN ('jizdy', 'tankovani', 'hlaseniObjizdek') AND data->>'driverId' = $2) OR (coll = 'eonDny' AND $3::boolean))
                ORDER BY seq LIMIT ` + STRANKA, [since, String(rel.driverId), jeEon]);
   const dalsi = rows.length === STRANKA;
   let seq;
@@ -56,11 +56,14 @@ async function ctiZmeny(req, res, q, rel) {
 // (stalyRidic), aby nešlo zapsat objížďku na cizí trasu. Vrací text varování, nebo null při úspěchu —
 // hlášení samotné se uloží vždy, i když se nepodaří ho promítnout (majitel ho pak zapíše ručně).
 async function aplikujHlaseniObjizdky(q, rel, data) {
-  const km = +data.km || 0;
+  let km = +data.km || 0;
   const datum = String(data.datum || '');
   const trasa = String(data.trasa || '');
-  if (km <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(datum) || !trasa) {
-    return 'Hlášení je uložené, ale chybí platné datum nebo km navíc — majitel ho musí do Malé dopravy zapsat ručně.';
+  // Denní km z tachometru (výjezd/příjezd): server je přepočítá sám, aby nešlo poslat nesedící čísla
+  const tachOd = +data.tachOd, tachDo = +data.tachDo;
+  const kmDen = (tachOd >= 0 && tachDo > tachOd && tachDo - tachOd <= 3000) ? Math.round(tachDo - tachOd) : 0;
+  if ((km <= 0 && kmDen <= 0) || !/^\d{4}-\d{2}-\d{2}$/.test(datum) || !trasa) {
+    return 'Hlášení je uložené, ale chybí platné datum nebo km — majitel ho musí do Malé dopravy zapsat ručně.';
   }
   // Komu hlášení patří — řidič hlásí za sebe, vedoucí dopravy (dispecer) může hlásit i za jiného řidiče,
   // takže se trasa ověřuje podle CÍLOVÉHO řidiče (data.driverId), ne podle toho, kdo je přihlášený.
@@ -71,14 +74,22 @@ async function aplikujHlaseniObjizdky(q, rel, data) {
   if (!jmeno || !trasaRows.length || trasaRows[0].data.stalyRidic !== jmeno) {
     return 'Hlášení je uložené, ale tahle trasa u tebe není vedená jako stálá — majitel ho musí do Malé dopravy zapsat ručně.';
   }
+  let varovaniKm = null;
+  if (kmDen > 0 && km <= 0) {
+    // km navíc = skutečně najeto − km trasy za den (jen když má trasa km za den nastavené, jinak by se celý den počítal jako objížďka)
+    const planKm = +trasaRows[0].data.kmZaDen || 0;
+    if (planKm > 0) km = Math.max(0, kmDen - planKm);
+    else varovaniKm = 'Najeté km jsou uložené, ale trasa nemá u majitele nastavené km za den, takže se objížďka nepočítá.';
+  }
   const denRows = await q(`SELECT data FROM vnd_records WHERE coll = 'malaDoprava' AND id = $1 AND deleted = false`, [datum]);
   const den = denRows.length ? denRows[0].data : { vyjimky: {}, nakladyRidic: 0, nakladyAuto: 0, nakladyOstatni: 0 };
   const puvodniVyjimka = (den.vyjimky || {})[trasa] || {};
-  const novyDen = { ...den, vyjimky: { ...(den.vyjimky || {}), [trasa]: { ridic: puvodniVyjimka.ridic || '', objizdkaKm: km, nejelo: puvodniVyjimka.nejelo || false } } };
+  const novyDen = { ...den, vyjimky: { ...(den.vyjimky || {}), [trasa]: { ridic: puvodniVyjimka.ridic || '', objizdkaKm: km, nejelo: puvodniVyjimka.nejelo || false,
+      ...(kmDen > 0 ? { kmSkutecne: kmDen, tachOd, tachDo, vozidlo: String(data.vozidlo || '').slice(0, 20) } : {}) } } };
   await q(`INSERT INTO vnd_records (coll, id, data, deleted, seq, updated_by) VALUES ('malaDoprava', $1, $2::jsonb, false, nextval('vnd_rev'), $3)
            ON CONFLICT (coll, id) DO UPDATE SET data = EXCLUDED.data, deleted = false, seq = nextval('vnd_rev'), updated_by = EXCLUDED.updated_by, updated_at = now()`,
     [datum, JSON.stringify(novyDen), rel.subject]);
-  return null;
+  return varovaniKm;
 }
 
 async function ulozZmeny(req, res, q, rel) {

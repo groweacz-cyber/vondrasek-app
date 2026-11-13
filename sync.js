@@ -11,7 +11,7 @@
 const STORAGE_KEY = 'vondrasek_app_v3';   // kopie dat v prohlížeči (v1/v2 = starší verze bez serveru)
 const SESSION_KEY = 'vondrasek_session_v3';
 
-const SYNC_POLE = ['jizdy', 'tankovani', 'vozidla', 'ridici', 'zakazky', 'hlaseniObjizdek', 'terminy'];   // seznamy záznamů s číselným id
+const SYNC_POLE = ['jizdy', 'tankovani', 'vozidla', 'ridici', 'zakazky', 'hlaseniObjizdek', 'terminy', 'linky'];   // seznamy záznamů s číselným id
 const SYNC_MAPY = ['malaDoprava', 'pnsRouteConfig', 'eonDny'];             // záznamy podle klíče (datum / číslo trasy / měsíc Eonu)
 const SYNC_VSE = SYNC_POLE.concat(SYNC_MAPY);
 const RIDIC_SMI_PSAT = ['jizdy', 'tankovani', 'hlaseniObjizdek', 'eonDny'];   // eonDny server pustí jen řidičce přiřazené k Eonu
@@ -21,7 +21,7 @@ const INTERVAL_STAHOVANI_MS = 15000;
 function novyPrazdnyStav() {
   return {
     role: null, driverName: null, driverId: null,
-    jizdy: [], tankovani: [], vozidla: [], ridici: [], zakazky: [], hlaseniObjizdek: [], terminy: [],
+    jizdy: [], tankovani: [], vozidla: [], ridici: [], zakazky: [], hlaseniObjizdek: [], terminy: [], linky: [],
     malaDoprava: {}, pnsRouteConfig: {}, eonDny: {},
     lastVozidloPerDriver: {},          // jen na tomto zařízení (předvyplnění vozidla)
     posledniZaloha: null, posledniNotifikace: null,
