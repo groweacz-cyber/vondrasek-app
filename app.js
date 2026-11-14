@@ -324,7 +324,8 @@ function renderDashboard() {
   const myJizdy = mojeJizdy();
   const eonRidic = !!(sync.me && sync.me.eonRidic);          // přiřazená k trase 20001+ (Eon)
   const mojeTrasy = (sync.me && sync.me.mojeTrasy) || [];   // jen řidičova vlastní trasa/trasy PNS, nikdy cizí (viz api/sync.js → zjistiMojeTrasy)
-  const kmCelkem = myJizdy.reduce((s,j) => s + (+j.km||0), 0);
+  const kmCelkem = myJizdy.reduce((s,j) => s + (+j.km||0), 0)
+    + (state.role === 'driver' ? state.hlaseniObjizdek.filter(h => String(h.driverId) === String(state.driverId)).reduce((s, h) => s + (+h.kmDen || 0), 0) : 0);
   const litryCelkem = state.tankovani.reduce((s,t) => s + (+t.litry||0), 0);
   const nakladyPHM = state.tankovani.reduce((s,t) => s + (+t.cenaCelkem||0), 0);
 
@@ -370,11 +371,12 @@ function renderDashboard() {
       <div class="metric"><div class="m-label">Řidiči</div><div class="m-value">${state.ridici.length}</div><div class="m-delta neutral">v systému</div></div>
       ` : ''}
       <div class="metric"><div class="m-label">Natankováno litrů</div><div class="m-value">${litryCelkem.toLocaleString('cs-CZ')}</div><div class="m-delta neutral">celkem</div></div>
-      <div class="metric"><div class="m-label">Náklady PHM</div><div class="m-value">${nakladyPHM.toLocaleString('cs-CZ')} Kč</div><div class="m-delta neutral">celkem</div></div>
+      ${isOwner ? `<div class="metric"><div class="m-label">Náklady PHM</div><div class="m-value">${nakladyPHM.toLocaleString('cs-CZ')} Kč</div><div class="m-delta neutral">celkem</div></div>` : ''}
     </div>
 
     ${!isOwner ? renderMojeZarazeni() : ''}
     ${!isOwner && eonRidic ? renderEonKarta(eonDashMesic().year, eonDashMesic().month, 'dash') : ''}
+    ${!isOwner ? renderMojeKmKarta() : ''}
 
     ${isOwner ? renderPrehledProvozu() : ''}
 
@@ -608,7 +610,7 @@ function jizdyVirtualni(typ, mesicFiltr) {
     const ridic = state.role === 'owner' ? (eonRidiciJmena().join(', ') || '—') : state.driverName;
     Object.entries(state.eonDny || {}).forEach(([k, rec]) => {
       if (mesicFiltr && k !== mesicFiltr) return;
-      Object.keys((rec && rec.dny) || {}).forEach(iso => rows.push({ datum: iso, ridic, vozidlo: '—', trasa: 'Eon 20001+', km: '', pozn: state.role === 'owner' ? `paušál: příjem ${EON_PRIJEM_ZA_DEN} Kč, výplata ${EON_KC_ZA_DEN} Kč` : `paušál ${EON_KC_ZA_DEN} Kč` }));
+      Object.keys((rec && rec.dny) || {}).forEach(iso => rows.push({ datum: iso, ridic, vozidlo: '—', trasa: 'Eon 20001+', km: '', pozn: state.role === 'owner' ? `paušál: příjem ${EON_PRIJEM_ZA_DEN} Kč, výplata ${EON_KC_ZA_DEN} Kč` : 'paušál' }));
     });
   } else {
     const mesic = mesicFiltr || dnes.slice(0, 7);   // bez filtru měsíce se ukáže aktuální měsíc (řádků je hodně)
@@ -624,7 +626,11 @@ function jizdyVirtualni(typ, mesicFiltr) {
       }));
     } else if (state.role === 'driver') {
       const trasy = (sync.me && sync.me.mojeTrasy) || [];
-      dny.forEach(iso => trasy.forEach(route => rows.push({ datum: iso, ridic: state.driverName, vozidlo: vozidloRidice(state.driverId), trasa: 'PNS ' + route, km: '', pozn: 'podle plánu trasy' })));
+      dny.forEach(iso => trasy.forEach(route => {
+        const h = state.hlaseniObjizdek.filter(x => x.datum === iso && String(x.trasa) === String(route) && String(x.driverId) === String(state.driverId)).sort((a, b) => b.id - a.id)[0];
+        const pozn = h ? ((h.kmDen ? `tachometr ${h.tachOd} → ${h.tachDo}` : '') + (+h.km > 0 ? ` +${h.km} km objížďka` : '') + (sync.snapshot.hlaseniObjizdek && sync.snapshot.hlaseniObjizdek[String(h.id)] ? ' · ✓ uloženo' : ' · ⏳ odesílá se')).trim() : 'nezapsáno';
+        rows.push({ datum: iso, ridic: state.driverName, vozidlo: vozidloRidice(state.driverId), trasa: 'PNS ' + route, km: h && h.kmDen ? h.kmDen : '', pozn });
+      }));
     }
   }
   return rows.sort((a, b) => b.datum.localeCompare(a.datum) || a.trasa.localeCompare(b.trasa));
@@ -782,6 +788,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 30, datum: '2026-11-14', text: 'Řidič (i vedoucí dopravy za svou trasu) má na hlavní stránce přehled „Moje najeté km": každý den, kolik najel, a jestli se záznam opravdu uložil na server; chybějící dny s tlačítkem Zapsat km. Řidiči nikde nevidí ceny, náklady ani příjmy (odebrány náklady PHM, ceny tankování a částka paušálu Eon).' },
   { id: 29, datum: '2026-11-13', text: 'Mapy tras (zdarma, bez klíče): v Kompletním přehledu a v Malé dopravě mapa se všemi trasami, každá jinou barvou s popisem, kudy jede; mapa dne v kalendáři; u linek mapa a u každé jízdy tlačítko 🗺️. Zastávky se zadávají u trasy (klik na číslo trasy) nebo u linky.' },
   { id: 28, datum: '2026-11-13', text: 'Jízdy: stav tachometru při výjezdu a příjezdu (km se spočítají samy, výjezd se předvyplní podle vozidla), časy výjezdu a příjezdu s dobou jízdy a linky (např. GW Jihotrans) s výběrem směru tam / zpět. PNS: řidič v hlášení zadá tachometr a appka spočítá najeté km za den i objížďku. Vozidla: aktuální stav tachometru a upozornění na servis podle najetých km.' },
   { id: 27, datum: '2026-11-12', text: 'Asistentka mluví ženským českým hlasem (Vlasta) ze serveru, takže stejně v každém prohlížeči.' },
@@ -1490,11 +1497,11 @@ window.otevritHlaseniVMaleDoprave = function(id) {
 
 // Formulář pro řidiče — nahlásit km navíc na jeho trase. Vkládá se dynamicky (ne jako součást
 // vykresleného dashboardu), ať má vždy čerstvý seznam tras ze serveru (sync.me.mojeTrasy).
-window.openObjizdkaHlaseniModal = function() {
+window.openObjizdkaHlaseniModal = function(predvyplneneDatum) {
   const stare = document.getElementById('objizdkaHlaseniModal'); if (stare) stare.remove();
   const jeDispecer = state.role === 'dispecer';
   const trasy = (sync.me && sync.me.mojeTrasy) || [];
-  const dnes = toISO(new Date());
+  const dnes = (typeof predvyplneneDatum === 'string' && predvyplneneDatum) || toISO(new Date());
   // Vedoucí dopravy může nahlásit objížďku i za jiného řidiče — pak si vybere trasu ze všech tras PNS,
   // ne jen ze svých vlastních (appka stejně ověří na serveru, že se trasa s vybraným řidičem shoduje).
   document.body.insertAdjacentHTML('beforeend', `
@@ -1568,7 +1575,7 @@ window.openObjizdkaHlaseniModal = function() {
     saveState();
     document.getElementById('objizdkaHlaseniModal').remove();
     renderSection('dashboard');
-    alert('Hlášení odesláno — majitel ho uvidí u objížděk.');
+    alert('Uloženo ✓ Majitel to uvidí u objížděk a ty to najdeš v přehledu „Moje najeté km" na hlavní stránce.');
   });
 };
 
@@ -1595,6 +1602,58 @@ function oznamNoveHlaseniObjizdek(noveZaznamy) {
   noveZaznamy.forEach(h => {
     try { new Notification('Vondrášek — nová objížďka', { body: `${h.driverName}: trasa ${h.trasa}, +${h.km} km (${formatDate(h.datum)})`, icon: 'icon-192.png' }); } catch (e) {}
   });
+}
+
+// Přehled řidiče (a vedoucí dopravy za její vlastní trasu): kolik km najel každý den a jestli se záznam opravdu uložil na server. Bez jakýchkoli cen.
+window._mojeKmOffset = window._mojeKmOffset || 0;
+window.mojeKmPosun = function(d) { window._mojeKmOffset = Math.min(0, (window._mojeKmOffset || 0) + d); renderSection('dashboard'); };
+function renderMojeKmKarta() {
+  const trasy = ((sync.me && sync.me.mojeTrasy) || []).map(String);
+  const mine = String(state.driverId);
+  const nyni = new Date(), vd = new Date(nyni.getFullYear(), nyni.getMonth() + (window._mojeKmOffset || 0), 1);
+  const rok = vd.getFullYear(), mes = vd.getMonth(), mesic = `${rok}-${String(mes + 1).padStart(2, '0')}`, dnesIso = toISO(nyni);
+  const hl = state.hlaseniObjizdek.filter(h => String(h.driverId) === mine && String(h.datum || '').startsWith(mesic));
+  const jz = state.jizdy.filter(j => String(j.driverId) === mine && String(j.datum || '').startsWith(mesic));
+  if (!trasy.length && !hl.length && !jz.length && !window._mojeKmOffset) return '';
+  const naServeru = (coll, id) => !!(sync.snapshot[coll] && sync.snapshot[coll][String(id)]);
+  const stav = (coll, rec) => naServeru(coll, rec.id) ? '<span style="color:var(--green);">✓ Uloženo na serveru</span>' : '<span style="color:var(--amber);">⏳ Odesílá se…</span>';
+  const radky = [];
+  let kmSoucet = 0, zapsano = 0, chybi = 0;
+  if (trasy.length) {
+    const pocetDnu = new Date(rok, mes + 1, 0).getDate();
+    for (let d = 1; d <= pocetDnu; d++) {
+      const iso = toISO(new Date(rok, mes, d));
+      if (iso > dnesIso || iso < PROVOZ_OD || !isDrivingDay(iso)) continue;
+      const h = hl.filter(x => x.datum === iso && trasy.includes(String(x.trasa))).sort((a, b) => b.id - a.id)[0];
+      if (h) {
+        zapsano++; kmSoucet += +h.kmDen || 0;
+        radky.push({ iso, html: `<tr><td>${formatDate(iso)}</td><td>PNS ${escH(h.trasa)}${h.tachDo ? `<div style="font-size:11.5px; color:var(--dim);">tachometr ${(+h.tachOd).toLocaleString('cs-CZ')} → ${(+h.tachDo).toLocaleString('cs-CZ')}</div>` : ''}</td>
+          <td style="text-align:right">${h.kmDen ? `<b>${h.kmDen} km</b>` : '—'}${+h.km > 0 ? `<div style="font-size:11.5px; color:var(--amber);">+${h.km} km objížďka</div>` : ''}</td>
+          <td>${stav('hlaseniObjizdek', h)}${h.stav === 'precteno' ? ' · majitel viděl' : ''}</td></tr>` });
+      } else {
+        chybi++;
+        radky.push({ iso, html: `<tr><td>${formatDate(iso)}</td><td>PNS ${escH(trasy.join(', '))}</td><td style="text-align:right;color:var(--amber);">nezapsáno</td>
+          <td><button class="btn btn-ghost btn-sm" onclick="openObjizdkaHlaseniModal('${iso}')">Zapsat km</button></td></tr>` });
+      }
+    }
+  }
+  jz.forEach(j => {
+    kmSoucet += +j.km || 0;
+    radky.push({ iso: j.datum, html: `<tr><td>${formatDate(j.datum)}</td><td>${escH(j.trasaOd)} → ${escH(j.trasaDo)}${j.tachDo ? `<div style="font-size:11.5px; color:var(--dim);">tachometr ${(+j.tachOd).toLocaleString('cs-CZ')} → ${(+j.tachDo).toLocaleString('cs-CZ')}</div>` : ''}</td>
+      <td style="text-align:right"><b>${j.km} km</b></td><td>${stav('jizdy', j)}</td></tr>` });
+  });
+  radky.sort((a, b) => b.iso.localeCompare(a.iso));
+  return `
+    <div class="card-panel" style="margin-bottom:20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:6px;">
+        <h3 style="margin-bottom:0;">🧭 Moje najeté km</h3>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button class="btn btn-ghost btn-sm" onclick="mojeKmPosun(-1)">←</button><b>${EON_MESICE[mes]} ${rok}</b><button class="btn btn-ghost btn-sm" onclick="mojeKmPosun(1)" ${window._mojeKmOffset >= 0 ? 'disabled' : ''}>→</button>
+        </div>
+      </div>
+      <p class="csub">Za tento měsíc najeto <b style="color:var(--white);">${kmSoucet.toLocaleString('cs-CZ')} km</b>${trasy.length ? ` · zapsáno ${zapsano} ${zapsano === 1 ? 'den' : 'dní'}` : ''}${chybi ? ` · <span style="color:var(--amber);">nezapsáno ${chybi} ${chybi === 1 ? 'den' : 'dní'}</span>` : ''}. U každého záznamu vidíš, jestli se opravdu uložil.</p>
+      ${radky.length ? `<table class="data-table"><thead><tr><th>Datum</th><th>Trasa</th><th style="text-align:right">Km</th><th>Stav</th></tr></thead><tbody>${radky.map(r => r.html).join('')}</tbody></table>` : '<div class="empty-state"><div class="empty-ic">🧭</div>V tomto měsíci zatím nic.</div>'}
+    </div>`;
 }
 
 function renderMapaKarta(scope) {
@@ -2409,7 +2468,7 @@ function renderTankovani() {
         <button class="btn btn-ghost btn-sm" id="btnExportTank">📥 Export CSV</button>
       </div>
       <table class="data-table">
-        <thead><tr><th>Datum</th><th>Vozidlo</th><th>Řidič</th><th>Místo</th><th style="text-align:right">Litry</th><th style="text-align:right">Cena</th><th>Účtenka</th><th></th></tr></thead>
+        <thead><tr><th>Datum</th><th>Vozidlo</th><th>Řidič</th><th>Místo</th><th style="text-align:right">Litry</th>${state.role === 'owner' ? '<th style="text-align:right">Cena</th>' : ''}<th>Účtenka</th><th></th></tr></thead>
         <tbody id="tankBody">${renderTankRows(state.tankovani)}</tbody>
       </table>
     </div>
@@ -2424,7 +2483,7 @@ function renderTankRows(list) {
     <tr>
       <td>${formatDate(t.datum)}</td><td>${t.vozidlo}</td><td>${t.ridic}</td><td>${t.misto}</td>
       <td style="text-align:right">${t.litry} l</td>
-      <td style="text-align:right"><b>${(+t.cenaCelkem).toLocaleString('cs-CZ')} Kč</b></td>
+      ${state.role === 'owner' ? `<td style="text-align:right"><b>${(+t.cenaCelkem).toLocaleString('cs-CZ')} Kč</b></td>` : ''}
       <td>${t.uctenka ? `<img src="${hAttr(t.uctenka)}" class="receipt-thumb" onclick="showReceipt(this.src)" alt="Účtenka">` : '<span style="color:var(--dim);font-size:12px;">—</span>'}</td>
       <td style="display:flex;gap:6px;">
         <button class="btn btn-ghost btn-sm" onclick="editTank(${t.id})">Upravit</button>
@@ -2574,9 +2633,10 @@ function bindTankovani() {
 function exportTankovaniCSV() {
   const mesic = document.getElementById('tankMesic')?.value || '';
   const list = mesic ? state.tankovani.filter(t => t.datum.startsWith(mesic)) : state.tankovani;
-  const rows = [['Datum','Vozidlo','Řidič','Místo','Litry','Cena celkem','Cena za litr'], ...list.map(t => {
+  const jeMajitel = state.role === 'owner';
+  const rows = [['Datum','Vozidlo','Řidič','Místo','Litry', ...(jeMajitel ? ['Cena celkem','Cena za litr'] : [])], ...list.map(t => {
     const cenaZaLitr = (+t.litry) > 0 ? (+t.cenaCelkem / +t.litry).toFixed(2) : '';
-    return [t.datum, t.vozidlo, t.ridic, t.misto, t.litry, t.cenaCelkem, cenaZaLitr];
+    return [t.datum, t.vozidlo, t.ridic, t.misto, t.litry, ...(jeMajitel ? [t.cenaCelkem, cenaZaLitr] : [])];
   })];
   const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   downloadFile('tankovani.csv','text/csv;charset=utf-8;','﻿'+csv);
@@ -3488,8 +3548,8 @@ function renderEonKarta(year, month, ctx) {
         ${cells}
       </div>
       <div style="margin-top:14px; padding:12px 14px; border:1px solid var(--green); border-radius:var(--radius-sm); background:rgba(16,185,129,0.08);">
-        <div style="font-size:13px;">Jela <b id="eonPocet">${eonPocetDnuMesice(year, month)}</b> dní v měsíci ${EON_MESICE[month].toLowerCase()} × ${EON_KC_ZA_DEN} Kč za den (paušál)</div>
-        <div style="font-size:16px; margin-top:4px;">${ctx === 'mala' ? 'K vyplacení řidičce' : 'Za tento měsíc dostaneš'}: <b id="eonCastka" style="color:var(--green); font-size:20px;">${kcFmt(eonCastkaMesice(year, month))}</b></div>
+        <div style="font-size:13px;">Jela <b id="eonPocet">${eonPocetDnuMesice(year, month)}</b> dní v měsíci ${EON_MESICE[month].toLowerCase()}${ctx === 'mala' ? ` × ${EON_KC_ZA_DEN} Kč za den (paušál)` : ''}</div>
+        ${ctx === 'mala' ? `<div style="font-size:16px; margin-top:4px;">K vyplacení řidičce: <b id="eonCastka" style="color:var(--green); font-size:20px;">${kcFmt(eonCastkaMesice(year, month))}</b></div>` : ''}
         ${ctx === 'mala' ? `<div id="eonSouhrnMajitele" style="font-size:13px; margin-top:6px; color:var(--muted);">${eonSouhrnMajitele(year, month)}</div>` : ''}
       </div>
     </div>
@@ -3518,7 +3578,7 @@ function bindEon(ctx) {
     lab.style.background = cb.checked ? 'rgba(16,185,129,0.12)' : '';
     const { year, month } = mesic();
     document.getElementById('eonPocet').textContent = eonPocetDnuMesice(year, month);
-    document.getElementById('eonCastka').textContent = kcFmt(eonCastkaMesice(year, month));
+    const castkaEl = document.getElementById('eonCastka'); if (castkaEl) castkaEl.textContent = kcFmt(eonCastkaMesice(year, month));
     const souhrn = document.getElementById('eonSouhrnMajitele');
     if (souhrn) souhrn.innerHTML = eonSouhrnMajitele(year, month);
     const mesice = document.getElementById('jizdyMesiceBody');   // přehled jízd na dashboardu se přepočítá hned

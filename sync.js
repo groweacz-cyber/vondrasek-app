@@ -142,7 +142,7 @@ function pocetNeodeslanych() { return spocitejZmeny().length; }
 // ---------- odeslání změn ----------
 async function odesli() {
   const zmeny = spocitejZmeny();
-  if (!zmeny.length) return;
+  if (!zmeny.length) return 0;
   let odmitnuto = null;
   for (let i = 0; i < zmeny.length; i += 40) {
     const davka = zmeny.slice(i, i + 40);
@@ -168,6 +168,7 @@ async function odesli() {
     alert('Změnu se nepodařilo uložit: ' + odmitnuto + '\nData se obnoví podle serveru.');
     await plneStazeni();
   }
+  return zmeny.length;
 }
 
 // ---------- stažení změn ----------
@@ -215,7 +216,9 @@ async function stahni() {
   let zmeneno = false;
   for (;;) {
     const odp = await api('/api/sync?since=' + since);
+    const stareMe = JSON.stringify([sync.me && sync.me.mojeTrasy, sync.me && sync.me.eonRidic]);
     sync.me = odp.me;
+    if (JSON.stringify([odp.me && odp.me.mojeTrasy, odp.me && odp.me.eonRidic]) !== stareMe) zmeneno = true;   // trasy řidiče se dozvíme až ze serveru — přehled se musí překreslit i bez změny dat
     if (pouzijZaznamy(odp.records)) zmeneno = true;
     if (odp.more) { since = odp.seq; continue; }
     sync.since = odp.seq;
@@ -264,10 +267,12 @@ function synchronizuj() {
     if (!state.role) return;
     try {
       nastavStav('sync');
-      await odesli();
+      const poslano = await odesli();
       const zmeneno = await stahni();
       nastavStav('ok');
-      if (zmeneno || sync.cekaNaRender) prekresliPoSynchronizaci();
+      // po odeslání se překreslí hlavní stránka, ať karta „Moje najeté km" ukáže „Uloženo na serveru"
+      const naDashboardu = !!document.querySelector('.nav-item.active[data-section="dashboard"]');
+      if (zmeneno || sync.cekaNaRender || (poslano && naDashboardu)) prekresliPoSynchronizaci();
     } catch (e) {
       if (e.status === 401) return;
       nastavStav(e.status === 0 ? 'offline' : 'chyba');
