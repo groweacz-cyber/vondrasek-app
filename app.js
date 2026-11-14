@@ -790,6 +790,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 33, datum: '2026-11-14', text: 'Tankování: zápis stavu tachometru a „natankováno do plné nádrže"; appka dopočítá spotřebu (l/100 km) z ujetých km od posledního plného tankování, ukáže ji hned ve formuláři i v seznamu s porovnáním s normou. Reporty počítají spotřebu vozidel z tachometru, když je k dispozici.' },
   { id: 32, datum: '2026-11-14', text: 'Hlášení o řidičích: vedoucí dopravy (Romana) zapíše nehodu, srážku se zvěří, poškození vozidla, pozdní příchod, pokutu od policie nebo celního úřadu, porušení pravidel nebo stížnost; majitel je vidí v kartě Hlášení o řidičích v Kompletním přehledu (nová, přečtená, filtr podle řidiče a měsíce, export). Řidič je nevidí.' },
   { id: 31, datum: '2026-11-14', text: 'Trasa Eon: řidička Renata Lišková opět vidí svůj výdělek (čistých 200 Kč za den) po dnech v měsíci i celkem za všechny měsíce; příjem od klienta (250 Kč) a cokoli dalšího z financí vidí dál jen majitel.' },
   { id: 30, datum: '2026-11-14', text: 'Řidič (i vedoucí dopravy za svou trasu) má na hlavní stránce přehled „Moje najeté km": každý den, kolik najel, a jestli se záznam opravdu uložil na server; chybějící dny s tlačítkem Zapsat km. Řidiči nikde nevidí ceny, náklady ani příjmy (odebrány náklady PHM, ceny tankování a částka paušálu Eon).' },
@@ -2251,6 +2252,7 @@ function tachStavVozidla(spz) {
   };
   (state.jizdy || []).forEach(j => { if (j.vozidlo === spz) zkus(j.datum, j.id, j.tachDo); });
   (state.hlaseniObjizdek || []).forEach(h => { if (h.vozidlo === spz) zkus(h.datum, h.id, h.tachDo); });
+  (state.tankovani || []).forEach(t => { if (t.vozidlo === spz) zkus(t.datum, t.id, t.tach); });
   return best ? best.tach : 0;
 }
 // Servis podle najetých km: interval + stav tachometru při posledním servisu → kolik km zbývá
@@ -2626,7 +2628,7 @@ function renderTankovani() {
         <button class="btn btn-ghost btn-sm" id="btnExportTank">📥 Export CSV</button>
       </div>
       <table class="data-table">
-        <thead><tr><th>Datum</th><th>Vozidlo</th><th>Řidič</th><th>Místo</th><th style="text-align:right">Litry</th>${state.role === 'owner' ? '<th style="text-align:right">Cena</th>' : ''}<th>Účtenka</th><th></th></tr></thead>
+        <thead><tr><th>Datum</th><th>Vozidlo</th><th>Řidič</th><th>Místo</th><th style="text-align:right">Litry</th><th style="text-align:right">Tachometr</th><th style="text-align:right">Spotřeba</th>${state.role === 'owner' ? '<th style="text-align:right">Cena</th>' : ''}<th>Účtenka</th><th></th></tr></thead>
         <tbody id="tankBody">${renderTankRows(state.tankovani)}</tbody>
       </table>
     </div>
@@ -2635,12 +2637,37 @@ function renderTankovani() {
   `;
 }
 
+// Spotřeba z tankování se stavem tachometru (metoda do plné nádrže): litry od posledního plného tankování ÷ ujeté km × 100.
+// Částečná tankování mezi dvěma plnými se přičtou; záznamy bez tachometru se nedají zařadit, takže se přeskočí.
+function tankSpotreby(spz, seznam) {
+  const zaznamy = (seznam || state.tankovani || []).filter(t => t.vozidlo === spz && +t.tach > 0).sort((a, b) => +a.tach - +b.tach);
+  const vysl = new Map();
+  let predPlna = null, litryOdPlne = 0;
+  zaznamy.forEach(t => {
+    litryOdPlne += +t.litry || 0;
+    if (t.plna === false) return;
+    if (predPlna && +t.tach > +predPlna.tach) {
+      const km = +t.tach - +predPlna.tach;
+      vysl.set(t.id, { km, litry: litryOdPlne, spotreba: litryOdPlne / km * 100 });
+    }
+    predPlna = t; litryOdPlne = 0;
+  });
+  return vysl;
+}
+const spotrebaBarva = (sp, norma) => !norma ? 'var(--ice)' : sp > norma * 1.1 ? 'var(--red)' : sp > norma * 1.03 ? 'var(--amber)' : 'var(--green)';
+
 function renderTankRows(list) {
-  if (!list.length) return `<tr><td colspan="8"><div class="empty-state"><div class="empty-ic">⛽</div>Žádné záznamy.</div></td></tr>`;
-  return list.map(t=>`
+  if (!list.length) return `<tr><td colspan="10"><div class="empty-state"><div class="empty-ic">⛽</div>Žádné záznamy.</div></td></tr>`;
+  const mapy = {};
+  return list.map(t=>{
+    const m = mapy[t.vozidlo] || (mapy[t.vozidlo] = tankSpotreby(t.vozidlo));
+    const sp = m.get(t.id), voz = state.vozidla.find(v => v.spz === t.vozidlo), norma = voz ? +voz.prumernaSpotreba || 0 : 0;
+    return `
     <tr>
       <td>${formatDate(t.datum)}</td><td>${t.vozidlo}</td><td>${t.ridic}</td><td>${t.misto}</td>
-      <td style="text-align:right">${t.litry} l</td>
+      <td style="text-align:right">${t.litry} l${t.plna === false ? '<div style="font-size:11px; color:var(--dim);">nedoplněno</div>' : ''}</td>
+      <td style="text-align:right">${+t.tach > 0 ? (+t.tach).toLocaleString('cs-CZ') + ' km' : '<span style="color:var(--dim);">—</span>'}</td>
+      <td style="text-align:right">${sp ? `<b style="color:${spotrebaBarva(sp.spotreba, norma)};">${sp.spotreba.toFixed(1)}</b> l/100<div style="font-size:11px; color:var(--dim);">ujeto ${sp.km.toLocaleString('cs-CZ')} km${norma ? ` · norma ${norma}` : ''}</div>` : '<span style="color:var(--dim);">—</span>'}</td>
       ${state.role === 'owner' ? `<td style="text-align:right"><b>${(+t.cenaCelkem).toLocaleString('cs-CZ')} Kč</b></td>` : ''}
       <td>${t.uctenka ? `<img src="${hAttr(t.uctenka)}" class="receipt-thumb" onclick="showReceipt(this.src)" alt="Účtenka">` : '<span style="color:var(--dim);font-size:12px;">—</span>'}</td>
       <td style="display:flex;gap:6px;">
@@ -2648,7 +2675,7 @@ function renderTankRows(list) {
         <button class="btn btn-danger btn-sm" onclick="deleteTank(${t.id})">Smazat</button>
       </td>
     </tr>
-  `).join('');
+  `;}).join('');
 }
 function renderReceiptLightbox() {
   return `
@@ -2709,6 +2736,11 @@ function renderTankModal(t={}, zaJineho = false) {
             <div class="form-row"><label>Litry *</label><input type="number" name="litry" step="0.01" required value="${t.litry||''}"></div>
             <div class="form-row"><label>Cena celkem (Kč) *</label><input type="number" name="cenaCelkem" step="0.01" required value="${t.cenaCelkem||''}"></div>
           </div>
+          <div class="form-cols-2">
+            <div class="form-row"><label>Stav tachometru (km)</label><input type="number" name="tach" min="0" step="1" value="${t.tach||''}" placeholder="přečti z palubní desky"></div>
+            <div class="form-row"><label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:24px; text-transform:none; letter-spacing:0; font-size:13px;"><input type="checkbox" name="plna" ${t.plna === false ? '' : 'checked'} style="width:18px; height:18px;"> Natankováno do plné nádrže</label></div>
+          </div>
+          <div id="tankSpotrebaInfo" style="font-size:12px; color:var(--muted); margin:-4px 0 12px;"></div>
           <div class="form-row">
             <label>📷 Fotka účtenky (nepovinné)</label>
             <input type="file" name="uctenkaFile" id="uctenkaInput" accept="image/*" capture="environment">
@@ -2749,6 +2781,26 @@ function wireTankModal() {
     document.getElementById('uctenkaPreviewWrap').style.display = 'none';
   });
 
+  // Živý náhled: poslední známý stav vozidla a spotřeba, kterou by toto tankování dalo
+  const tankForm = document.getElementById('tankForm'), info = document.getElementById('tankSpotrebaInfo');
+  const prepocitejSpotrebu = () => {
+    const f = (n) => tankForm.elements[n], spz = f('vozidlo').value, tach = +f('tach').value, litry = +f('litry').value;
+    const last = tachStavVozidla(spz), editId = +f('editId').value || null;
+    let t = last ? `Poslední známý stav tohoto vozidla: <b>${last.toLocaleString('cs-CZ')} km</b>. ` : '';
+    if (f('tach').value && !editId && last && tach < last) t += '<span style="color:var(--amber);">⚠ Zadaný stav je nižší než poslední známý.</span> ';
+    if (f('tach').value && litry > 0) {
+      const seznam = state.tankovani.filter(x => x.id !== editId).concat([{ id: '__nove', vozidlo: spz, tach, litry, plna: f('plna').checked }]);
+      const sp = tankSpotreby(spz, seznam).get('__nove');
+      const voz = state.vozidla.find(v => v.spz === spz), norma = voz ? +voz.prumernaSpotreba || 0 : 0;
+      if (sp) t += `Od posledního plného tankování ujeto <b>${sp.km.toLocaleString('cs-CZ')} km</b> → spotřeba <b style="color:${spotrebaBarva(sp.spotreba, norma)};">${sp.spotreba.toFixed(1)} l/100 km</b>${norma ? ` (norma ${norma})` : ''}.`;
+      else t += f('plna').checked ? 'Spotřeba se spočítá od příštího tankování do plné nádrže.' : 'Spotřeba se dopočítá při příštím tankování do plné nádrže.';
+    }
+    info.innerHTML = t;
+  };
+  ['tach', 'litry', 'vozidlo', 'plna'].forEach(n => tankForm.elements[n].addEventListener('input', prepocitejSpotrebu));
+  tankForm.elements['vozidlo'].addEventListener('change', prepocitejSpotrebu);
+  prepocitejSpotrebu();
+
   document.getElementById('tankForm').addEventListener('submit', (e) => {
     e.preventDefault(); const fd = new FormData(e.target);
     const vozidlo = fd.get('vozidlo');
@@ -2756,6 +2808,7 @@ function wireTankModal() {
     const data = {
       datum: fd.get('datum'), vozidlo, ridic: fd.get('ridic'), driverId: idRidiceZVyberu(fd.get('ridic')),
       misto: fd.get('misto'), litry: +fd.get('litry'), cenaCelkem: +fd.get('cenaCelkem'),
+      tach: fd.get('tach') !== '' && fd.get('tach') !== null ? +fd.get('tach') : null, plna: fd.get('plna') === 'on',
       uctenka: fd.get('uctenkaData') || null
     };
     if (editId) {
@@ -2792,9 +2845,11 @@ function exportTankovaniCSV() {
   const mesic = document.getElementById('tankMesic')?.value || '';
   const list = mesic ? state.tankovani.filter(t => t.datum.startsWith(mesic)) : state.tankovani;
   const jeMajitel = state.role === 'owner';
-  const rows = [['Datum','Vozidlo','Řidič','Místo','Litry', ...(jeMajitel ? ['Cena celkem','Cena za litr'] : [])], ...list.map(t => {
+  const mapy = {};
+  const rows = [['Datum','Vozidlo','Řidič','Místo','Litry','Tachometr','Do plné nádrže','Spotřeba l/100 km', ...(jeMajitel ? ['Cena celkem','Cena za litr'] : [])], ...list.map(t => {
     const cenaZaLitr = (+t.litry) > 0 ? (+t.cenaCelkem / +t.litry).toFixed(2) : '';
-    return [t.datum, t.vozidlo, t.ridic, t.misto, t.litry, ...(jeMajitel ? [t.cenaCelkem, cenaZaLitr] : [])];
+    const sp = (mapy[t.vozidlo] || (mapy[t.vozidlo] = tankSpotreby(t.vozidlo))).get(t.id);
+    return [t.datum, t.vozidlo, t.ridic, t.misto, t.litry, t.tach || '', t.plna === false ? 'ne' : 'ano', sp ? sp.spotreba.toFixed(1) : '', ...(jeMajitel ? [t.cenaCelkem, cenaZaLitr] : [])];
   })];
   const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   downloadFile('tankovani.csv','text/csv;charset=utf-8;','﻿'+csv);
@@ -4644,11 +4699,15 @@ function vozidloStatistika(v, mesic) {
   const mesice = new Set(jizdy.concat(tank).map(x => String(x.datum || '').slice(0, 7)).filter(Boolean));
   const fixni = (+v.fixniMesicne || 0) * (mesic ? (mesice.size ? 1 : 0) : mesice.size);
   const litry = tank.reduce((s, t) => s + (+t.litry || 0), 0);
+  // spotřeba podle tachometru z tankování do plné nádrže, když ji máme; jinak litry ÷ km z jízd (hrubý odhad)
+  const spTank = tankSpotreby(v.spz);
+  let kmTank = 0, litryTank = 0;
+  tank.forEach(t => { const x = spTank.get(t.id); if (x) { kmTank += x.km; litryTank += x.litry; } });
   const naklady = nakladyJizd + fixni;
   return {
     v, km, pocet: jizdy.length, bezFinanci: jizdy.length - sFinancemi.length, trzby, nakladyJizd, fixni, naklady, zisk: trzby - naklady,
     nakladNaKm: km > 0 ? naklady / km : 0, ziskNaKm: km > 0 ? (trzby - naklady) / km : 0,
-    litry, skutecnaSpotreba: km > 0 && litry > 0 ? litry / km * 100 : 0
+    litry, skutecnaSpotreba: kmTank > 0 ? litryTank / kmTank * 100 : (km > 0 && litry > 0 ? litry / km * 100 : 0)
   };
 }
 window.setVozMesic = function(m) { window._vozMesic = m; renderSection('reporty'); };
