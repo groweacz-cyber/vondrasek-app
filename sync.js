@@ -11,17 +11,17 @@
 const STORAGE_KEY = 'vondrasek_app_v3';   // kopie dat v prohlížeči (v1/v2 = starší verze bez serveru)
 const SESSION_KEY = 'vondrasek_session_v3';
 
-const SYNC_POLE = ['jizdy', 'tankovani', 'vozidla', 'ridici', 'zakazky', 'hlaseniObjizdek', 'terminy', 'linky'];   // seznamy záznamů s číselným id
+const SYNC_POLE = ['jizdy', 'tankovani', 'vozidla', 'ridici', 'zakazky', 'hlaseniObjizdek', 'terminy', 'linky', 'incidenty'];   // seznamy záznamů s číselným id
 const SYNC_MAPY = ['malaDoprava', 'pnsRouteConfig', 'eonDny'];             // záznamy podle klíče (datum / číslo trasy / měsíc Eonu)
 const SYNC_VSE = SYNC_POLE.concat(SYNC_MAPY);
-const RIDIC_SMI_PSAT = ['jizdy', 'tankovani', 'hlaseniObjizdek', 'eonDny'];   // eonDny server pustí jen řidičce přiřazené k Eonu
-const RAZENI_SESTUPNE = ['jizdy', 'tankovani', 'zakazky', 'hlaseniObjizdek'];                  // nejnovější nahoře
+const RIDIC_SMI_PSAT = ['jizdy', 'tankovani', 'hlaseniObjizdek', 'eonDny', 'incidenty'];   // eonDny server pustí jen řidičce přiřazené k Eonu
+const RAZENI_SESTUPNE = ['jizdy', 'tankovani', 'zakazky', 'hlaseniObjizdek', 'incidenty'];                  // nejnovější nahoře
 const INTERVAL_STAHOVANI_MS = 15000;
 
 function novyPrazdnyStav() {
   return {
     role: null, driverName: null, driverId: null,
-    jizdy: [], tankovani: [], vozidla: [], ridici: [], zakazky: [], hlaseniObjizdek: [], terminy: [], linky: [],
+    jizdy: [], tankovani: [], vozidla: [], ridici: [], zakazky: [], hlaseniObjizdek: [], terminy: [], linky: [], incidenty: [],
     malaDoprava: {}, pnsRouteConfig: {}, eonDny: {},
     lastVozidloPerDriver: {},          // jen na tomto zařízení (předvyplnění vozidla)
     posledniZaloha: null, posledniNotifikace: null,
@@ -180,6 +180,7 @@ function seraditKolekce() {
 function pouzijZaznamy(records) {
   let zmeneno = false;
   const noveHlaseni = [];       // nová (dosud neznámá) hlášení objížděk — pro upozornění majitele
+  const noveIncidenty = [];     // nová hlášení o řidičích od vedoucí dopravy — pro upozornění majitele
   records.forEach(r => {
     const coll = r.coll, id = String(r.id);
     if (!SYNC_VSE.includes(coll)) return;
@@ -203,10 +204,14 @@ function pouzijZaznamy(records) {
     } else state[coll][id] = nova;
     snap[id] = kanon(nova); zmeneno = true;
     if (coll === 'hlaseniObjizdek' && !bylaTuNova) noveHlaseni.push(nova);
+    if (coll === 'incidenty' && !bylaTuNova) noveIncidenty.push(nova);
   });
   if (zmeneno) seraditKolekce();
   if (noveHlaseni.length && sync.initialLoadDone && typeof window.oznamNoveHlaseniObjizdek === 'function') {
     window.oznamNoveHlaseniObjizdek(noveHlaseni);
+  }
+  if (noveIncidenty.length && sync.initialLoadDone && typeof window.oznamNoveIncidenty === 'function') {
+    window.oznamNoveIncidenty(noveIncidenty);
   }
   return zmeneno;
 }

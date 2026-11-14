@@ -346,6 +346,7 @@ function renderDashboard() {
         ${isDispecer ? `
         <button class="btn btn-primary btn-sm" id="btnDashAddJizdaZaRidice">🚚 Jízda za řidiče</button>
         <button class="btn btn-primary btn-sm" id="btnDashAddTankZaRidice">⛽ Tankování za řidiče</button>
+        <button class="btn btn-ghost btn-sm" id="btnDashAddIncident">⚠️ Nahlásit incident</button>
         ` : ''}
       </div>
     </div>
@@ -384,6 +385,7 @@ function renderDashboard() {
 
     ${isOwner || isDispecer ? renderDnesekMalaDoprava() : ''}
     ${isOwner || isDispecer ? renderHlaseniObjizdekOwnerCard() : renderHlaseniObjizdekDriverCard()}
+    ${isOwner || isDispecer ? renderIncidentyKarta() : ''}
 
     ${renderJizdyPoMesicich(isOwner || isDispecer)}
 
@@ -788,6 +790,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 32, datum: '2026-11-14', text: 'Hlášení o řidičích: vedoucí dopravy (Romana) zapíše nehodu, srážku se zvěří, poškození vozidla, pozdní příchod, pokutu od policie nebo celního úřadu, porušení pravidel nebo stížnost; majitel je vidí v kartě Hlášení o řidičích v Kompletním přehledu (nová, přečtená, filtr podle řidiče a měsíce, export). Řidič je nevidí.' },
   { id: 31, datum: '2026-11-14', text: 'Trasa Eon: řidička Renata Lišková opět vidí svůj výdělek (čistých 200 Kč za den) po dnech v měsíci i celkem za všechny měsíce; příjem od klienta (250 Kč) a cokoli dalšího z financí vidí dál jen majitel.' },
   { id: 30, datum: '2026-11-14', text: 'Řidič (i vedoucí dopravy za svou trasu) má na hlavní stránce přehled „Moje najeté km": každý den, kolik najel, a jestli se záznam opravdu uložil na server; chybějící dny s tlačítkem Zapsat km. Řidiči nikde nevidí ceny, náklady ani příjmy (odebrány náklady PHM, ceny tankování a částka paušálu Eon).' },
   { id: 29, datum: '2026-11-13', text: 'Mapy tras (zdarma, bez klíče): v Kompletním přehledu a v Malé dopravě mapa se všemi trasami, každá jinou barvou s popisem, kudy jede; mapa dne v kalendáři; u linek mapa a u každé jízdy tlačítko 🗺️. Zastávky se zadávají u trasy (klik na číslo trasy) nebo u linky.' },
@@ -1605,6 +1608,159 @@ function oznamNoveHlaseniObjizdek(noveZaznamy) {
   });
 }
 
+// ==========================================================
+// HLÁŠENÍ O ŘIDIČÍCH — vedoucí dopravy (nebo majitel) zapíše nehodu, srážku se zvěří, pozdní příchod…;
+// majitel je vidí v Kompletním přehledu. Řidič je nevidí ani nepíše (viz api/sync.js, kolekce incidenty).
+// ==========================================================
+const INCIDENT_TYPY = [
+  ['zver', '🦌', 'Srážka se zvěří'], ['nehoda', '💥', 'Nehoda'], ['skoda', '🔧', 'Poškození vozidla'], ['pozdni', '⏰', 'Pozdní příchod'],
+  ['pokuta_policie', '🚔', 'Pokuta od policie (rychlost apod.)'], ['pokuta_celni', '🛃', 'Pokuta od celního úřadu'],
+  ['predpisy', '🚫', 'Porušení pravidel / předpisů'], ['stiznost', '📣', 'Stížnost / reklamace'], ['jine', '📝', 'Jiné']
+];
+const INCIDENT_ZAVAZNOST = [['drobne', 'Drobné'], ['stredni', 'Střední'], ['zavazne', 'Závažné']];
+const incidentTyp = (k) => INCIDENT_TYPY.find(t => t[0] === k) || INCIDENT_TYPY[INCIDENT_TYPY.length - 1];
+const incidentBarva = (z) => z === 'zavazne' ? 'var(--red)' : z === 'stredni' ? 'var(--amber)' : 'var(--border-c)';
+
+function incidentRadekHtml(i, klik, mazat) {
+  const t = incidentTyp(i.typ), z = (INCIDENT_ZAVAZNOST.find(x => x[0] === i.zavaznost) || ['', ''])[1];
+  const jeMajitel = state.role === 'owner', precteno = i.stav === 'precteno';
+  return `<div style="display:flex; align-items:center; gap:12px; padding:10px 12px; background:var(--card); border-radius:var(--radius-sm); margin-bottom:8px; border-left:3px solid ${incidentBarva(i.zavaznost)}; ${klik ? 'cursor:pointer;' : ''}" ${klik ? `onclick="incidentPrecteno(${i.id})"` : ''}>
+    <span style="font-size:18px;">${t[1]}</span>
+    <div style="flex:1; font-size:13px;">
+      <b>${escH(i.driverName)}</b> — ${t[2]}${z ? ` (${z.toLowerCase()})` : ''}${i.typ === 'pozdni' && +i.minut > 0 ? `, o ${+i.minut} min` : ''} · ${formatDate(i.datum)}${i.vozidlo ? ` · ${escH(i.vozidlo)}` : ''}${jeMajitel && +i.castka > 0 ? ` · <b>${(+i.castka).toLocaleString('cs-CZ')} Kč</b>` : ''}
+      <div style="color:var(--muted); font-size:12px; margin-top:2px; white-space:pre-line;">${escH(i.popis)}</div>
+      <div style="color:var(--dim); font-size:11.5px; margin-top:2px;">zapsal(a): ${escH(i.zapsalJmeno || '—')}</div>
+    </div>
+    <span class="badge ${precteno ? 'ok' : 'warn'}">${jeMajitel ? (precteno ? 'Přečteno' : 'Nové') : (precteno ? 'Majitel viděl' : 'Odesláno')}</span>
+    ${mazat ? `<button class="btn btn-ghost btn-sm" title="Smazat hlášení" onclick="event.stopPropagation(); smazIncident(${i.id})">🗑️</button>` : ''}
+  </div>`;
+}
+
+function renderIncidentyKarta() {
+  const jeMajitel = state.role === 'owner';
+  const seznam = state.incidenty.slice(0, 8);
+  const nove = state.incidenty.filter(i => i.stav !== 'precteno').length;
+  return `
+    <div class="card-panel" style="margin-bottom:20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+        <h3 style="margin-bottom:0;">⚠️ Hlášení o řidičích</h3>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          ${jeMajitel && nove > 0 ? `<span class="badge warn">${nove} ${nove === 1 ? 'nové' : 'nových'}</span>` : ''}
+          <button class="btn btn-ghost btn-sm" onclick="openIncidentModal()">+ Nové hlášení</button>
+          ${state.incidenty.length ? `<button class="btn btn-ghost btn-sm" onclick="openIncidentySeznam()">Zobrazit vše (${state.incidenty.length})</button>` : ''}
+        </div>
+      </div>
+      <p class="csub">${jeMajitel ? 'Nehody, srážky se zvěří, pozdní příchody a další, co zapíše vedoucí dopravy. Klikem na hlášení ho označíš za přečtené.' : 'Zapiš sem nehodu, srážku se zvěří, pozdní příchod apod. Hlášení vidí jen majitel a ty, řidič ne.'}</p>
+      ${seznam.length ? seznam.map(i => incidentRadekHtml(i, jeMajitel && i.stav !== 'precteno', false)).join('') : '<div class="empty-state"><div class="empty-ic">⚠️</div>Zatím žádná hlášení.</div>'}
+    </div>`;
+}
+
+window.incidentPrecteno = function(id) {
+  const i = state.incidenty.find(x => x.id === id);
+  if (!i || state.role !== 'owner' || i.stav === 'precteno') return;
+  i.stav = 'precteno'; saveState(); renderSection('dashboard');
+};
+window.smazIncident = function(id) {
+  if (!confirm('Smazat toto hlášení o řidiči? Nelze vrátit.')) return;
+  state.incidenty = state.incidenty.filter(x => x.id !== id); saveState();
+  if (document.getElementById('incidentSeznamModal')) incidentSeznamVykresli();
+  renderSection('dashboard');
+};
+
+window.openIncidentModal = function() {
+  const stare = document.getElementById('incidentModal'); if (stare) stare.remove();
+  document.body.insertAdjacentHTML('beforeend', `
+    <div class="modal-overlay open" id="incidentModal"><div class="modal">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
+        <h2 style="margin-bottom:2px;">⚠️ Nové hlášení o řidiči</h2>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('incidentModal').remove()">✕</button>
+      </div>
+      <p class="modal-sub">Nehoda, srážka se zvěří, pozdní příchod… Hlášení uvidí majitel v Kompletním přehledu, řidič ne.</p>
+      <form id="incidentForm">
+        <div class="form-cols-2">
+          <div class="form-row"><label>Řidič *</label><select name="ridic" required><option value="" disabled selected>— vyber řidiče —</option>${state.ridici.map(r => `<option value="${r.id}">${escH(r.jmeno)}</option>`).join('')}</select></div>
+          <div class="form-row"><label>Datum *</label><input type="date" name="datum" value="${toISO(new Date())}" required></div>
+        </div>
+        <div class="form-cols-2">
+          <div class="form-row"><label>Druh *</label><select name="typ" required>${INCIDENT_TYPY.map(t => `<option value="${t[0]}">${t[1]} ${t[2]}</option>`).join('')}</select></div>
+          <div class="form-row"><label>Závažnost</label><select name="zavaznost">${INCIDENT_ZAVAZNOST.map(z => `<option value="${z[0]}">${z[1]}</option>`).join('')}</select></div>
+        </div>
+        <div class="form-cols-2">
+          <div class="form-row" id="incidentMinutRow" style="display:none;"><label>Zpoždění (minut)</label><input type="number" name="minut" min="1" step="1" placeholder="např. 20"></div>
+          <div class="form-row"><label>Vozidlo (nepovinné)</label><select name="vozidlo"><option value="">—</option>${state.vozidla.map(v => `<option value="${escH(v.spz)}">${escH(v.spz)} — ${escH(v.znacka)}</option>`).join('')}</select></div>
+        </div>
+        ${state.role === 'owner' ? '<div class="form-row" id="incidentCastkaRow" style="display:none;"><label>Výše pokuty (Kč, nepovinné)</label><input type="number" name="castka" min="0" step="1"></div>' : ''}
+        <div class="form-row"><label>Popis *</label><textarea name="popis" rows="4" required placeholder="Co se stalo, kde a kdy; případná škoda nebo co bylo dohodnuto"></textarea></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" onclick="document.getElementById('incidentModal').remove()">Zrušit</button>
+          <button type="submit" class="btn btn-primary">Uložit hlášení</button>
+        </div>
+      </form>
+    </div></div>`);
+  const f = document.getElementById('incidentForm');
+  f.elements['typ'].addEventListener('change', () => {
+    document.getElementById('incidentMinutRow').style.display = f.elements['typ'].value === 'pozdni' ? '' : 'none';
+    const c = document.getElementById('incidentCastkaRow'); if (c) c.style.display = /^pokuta/.test(f.elements['typ'].value) ? '' : 'none';
+  });
+  f.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const fd = new FormData(f);
+    const r = state.ridici.find(x => String(x.id) === String(fd.get('ridic')));
+    if (!r) return;
+    const jeMajitel = state.role === 'owner';
+    state.incidenty.unshift({
+      id: Date.now(), datum: fd.get('datum'), driverId: r.id, driverName: r.jmeno, typ: fd.get('typ'), zavaznost: fd.get('zavaznost'),
+      ...(fd.get('typ') === 'pozdni' && +fd.get('minut') > 0 ? { minut: +fd.get('minut') } : {}),
+      ...(jeMajitel && /^pokuta/.test(fd.get('typ')) && +fd.get('castka') > 0 ? { castka: +fd.get('castka') } : {}),
+      vozidlo: fd.get('vozidlo') || '', popis: String(fd.get('popis')).trim(),
+      zapsalId: jeMajitel ? 'owner' : state.driverId, zapsalJmeno: jeMajitel ? 'Jarda' : state.driverName,
+      vytvoreno: new Date().toISOString(), stav: jeMajitel ? 'precteno' : 'nove'
+    });
+    saveState(); document.getElementById('incidentModal').remove(); renderSection('dashboard');
+    alert('Hlášení je uložené ✓ Majitel ho uvidí v Kompletním přehledu.');
+  });
+};
+
+window._incFiltr = window._incFiltr || { ridic: '', mesic: '' };
+function incidentSeznamVykresli() {
+  const f = window._incFiltr, misto = document.getElementById('incidentSeznamObsah'); if (!misto) return;
+  const list = state.incidenty.filter(i => (!f.ridic || String(i.driverId) === f.ridic) && (!f.mesic || String(i.datum).startsWith(f.mesic)));
+  const podleRidice = {};
+  list.forEach(i => { podleRidice[i.driverName] = (podleRidice[i.driverName] || 0) + 1; });
+  const ridici = [...new Map(state.incidenty.map(i => [String(i.driverId), i.driverName])).entries()];
+  misto.innerHTML = `
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+      <select onchange="window._incFiltr.ridic = this.value; incidentSeznamVykresli()"><option value="">Všichni řidiči</option>${ridici.map(([id, jm]) => `<option value="${id}" ${f.ridic === id ? 'selected' : ''}>${escH(jm)}</option>`).join('')}</select>
+      <select onchange="window._incFiltr.mesic = this.value; incidentSeznamVykresli()"><option value="">Všechny měsíce</option>${posledni12Mesicu().map(m => `<option value="${m.value}" ${f.mesic === m.value ? 'selected' : ''}>${m.label}</option>`).join('')}</select>
+      <button class="btn btn-ghost btn-sm" onclick="exportIncidentyCSV()">📥 Export CSV</button>
+    </div>
+    <p class="csub" style="margin-bottom:10px;">Počet hlášení: ${list.length}${Object.keys(podleRidice).length ? ': ' + Object.entries(podleRidice).sort((a, b) => b[1] - a[1]).map(([jm, n]) => `${escH(jm)} (${n}×)`).join(', ') : ''}</p>
+    ${list.length ? list.map(i => incidentRadekHtml(i, false, true)).join('') : '<div class="empty-state"><div class="empty-ic">⚠️</div>Nic k zobrazení.</div>'}`;
+}
+window.openIncidentySeznam = function() {
+  const stare = document.getElementById('incidentSeznamModal'); if (stare) stare.remove();
+  document.body.insertAdjacentHTML('beforeend', `
+    <div class="modal-overlay open" id="incidentSeznamModal"><div class="modal" style="max-width:760px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
+        <h2 style="margin-bottom:2px;">⚠️ Hlášení o řidičích</h2>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('incidentSeznamModal').remove()">✕</button>
+      </div>
+      <div id="incidentSeznamObsah"></div>
+    </div></div>`);
+  incidentSeznamVykresli();
+};
+window.exportIncidentyCSV = function() {
+  const f = window._incFiltr;
+  const list = state.incidenty.filter(i => (!f.ridic || String(i.driverId) === f.ridic) && (!f.mesic || String(i.datum).startsWith(f.mesic)));
+  const rows = [['Datum', 'Řidič', 'Druh', 'Závažnost', 'Zpoždění (min)', 'Vozidlo', 'Popis', 'Zapsal(a)', 'Pokuta Kč'], ...list.map(i => [i.datum, i.driverName, incidentTyp(i.typ)[2], (INCIDENT_ZAVAZNOST.find(z => z[0] === i.zavaznost) || ['', ''])[1], i.minut || '', i.vozidlo || '', i.popis, i.zapsalJmeno || '', i.castka || ''])];
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  downloadFile('hlaseni-o-ridicich.csv', 'text/csv;charset=utf-8;', String.fromCharCode(0xFEFF) + csv);
+};
+function oznamNoveIncidenty(nove) {
+  if (state.role !== 'owner' || !('Notification' in window) || Notification.permission !== 'granted') return;
+  nove.forEach(i => { try { new Notification('Vondrášek — hlášení o řidiči', { body: `${i.driverName}: ${incidentTyp(i.typ)[2]} (${formatDate(i.datum)})`, icon: 'icon-192.png' }); } catch (e) {} });
+}
+
 // Přehled řidiče (a vedoucí dopravy za její vlastní trasu): kolik km najel každý den a jestli se záznam opravdu uložil na server. Bez jakýchkoli cen.
 window._mojeKmOffset = window._mojeKmOffset || 0;
 window.mojeKmPosun = function(d) { window._mojeKmOffset = Math.min(0, (window._mojeKmOffset || 0) + d); renderSection('dashboard'); };
@@ -1669,6 +1825,7 @@ function renderMapaKarta(scope) {
 
 function bindDashboard() {
   mapaPanelyInit(document.getElementById('content'));
+  document.getElementById('btnDashAddIncident')?.addEventListener('click', () => openIncidentModal());
   bindJizdyMesice();
   document.getElementById('dnesMalaDopravaCard')?.addEventListener('click', () => {
     document.querySelector('.nav-item[data-section="mala-doprava"]').click();

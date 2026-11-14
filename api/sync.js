@@ -33,8 +33,9 @@ async function ctiZmeny(req, res, q, rel) {
     : rel.role === 'dispecer'
     // Vedoucí dopravy vidí jízdy/tankování/hlášení objížděk za VŠECHNY řidiče (bez financí), ne jen svoje.
     ? await q(`SELECT coll, id, data, deleted, seq FROM vnd_records
-               WHERE seq > $1 AND (coll IN ('vozidla', 'ridici', 'linky', 'jizdy', 'tankovani', 'hlaseniObjizdek') OR (coll = 'eonDny' AND $2::boolean))
-               ORDER BY seq LIMIT ` + STRANKA, [since, jeEon])
+               WHERE seq > $1 AND (coll IN ('vozidla', 'ridici', 'linky', 'jizdy', 'tankovani', 'hlaseniObjizdek') OR (coll = 'eonDny' AND $2::boolean)
+                                   OR (coll = 'incidenty' AND data->>'zapsalId' = $3))
+               ORDER BY seq LIMIT ` + STRANKA, [since, jeEon, String(rel.driverId)])
     : await q(`SELECT coll, id, data, deleted, seq FROM vnd_records
                WHERE seq > $1 AND (coll IN ('vozidla', 'ridici', 'linky') OR (coll IN ('jizdy', 'tankovani', 'hlaseniObjizdek') AND data->>'driverId' = $2) OR (coll = 'eonDny' AND $3::boolean))
                ORDER BY seq LIMIT ` + STRANKA, [since, String(rel.driverId), jeEon]);
@@ -128,6 +129,10 @@ async function ulozZmeny(req, res, q, rel) {
       if (o.coll === 'eonDny') {
         if (eonPovoleno === null) eonPovoleno = await jeEonRidic(q, rel);
         if (!eonPovoleno) { chyba('Kalendář trasy Eon smí upravovat jen k ní přiřazená řidička.'); continue; }
+      } else if (o.coll === 'incidenty') {
+        // hlášení o řidičích (nehoda, srážka se zvěří, pozdní příchod…): zapisuje a maže jen vedoucí dopravy své vlastní záznamy; řidič je nevidí ani nepíše
+        if (!jeDispecer) { chyba('Hlášení o řidičích smí zapisovat jen majitel a vedoucí dopravy.'); continue; }
+        if (staryData && String(staryData.zapsalId) !== String(rel.driverId)) { chyba('Cizí záznam.'); continue; }
       } else {
         if (!RIDIC_PISE.includes(o.coll)) { chyba('Tuhle část smí upravovat jen majitel.'); continue; }
         if (!jeDispecer && staryData && String(staryData.driverId) !== String(rel.driverId)) { chyba('Cizí záznam.'); continue; }
@@ -138,7 +143,7 @@ async function ulozZmeny(req, res, q, rel) {
       if (o.del) {
         if (!stary) { vysledky[i] = { coll: o.coll, id: o.id, ok: true }; continue; }
         await q(`UPDATE vnd_records SET deleted = true,
-                   data = CASE WHEN data ? 'driverId' THEN jsonb_build_object('driverId', data->'driverId') ELSE '{}'::jsonb END,
+                   data = CASE WHEN data ? 'driverId' THEN jsonb_strip_nulls(jsonb_build_object('driverId', data->'driverId', 'zapsalId', data->'zapsalId')) ELSE '{}'::jsonb END,
                    seq = nextval('vnd_rev'), updated_by = $3, updated_at = now()
                  WHERE coll = $1 AND id = $2`, [o.coll, o.id, rel.subject]);
         if (o.coll === 'ridici') await q('DELETE FROM vnd_access WHERE subject = $1', ['driver:' + o.id]);
@@ -157,6 +162,7 @@ async function ulozZmeny(req, res, q, rel) {
         data = { dny };
       } else if (!jeMajitel && !jeDispecer && String(data.driverId) !== String(rel.driverId)) { chyba('Záznam musí patřit přihlášenému řidiči.'); continue; }
       if (o.coll === 'ridici') delete data.pin;                       // PINy se na serveru drží jen jako otisk
+      if (o.coll === 'incidenty' && !jeMajitel) data.zapsalId = rel.driverId;   // autora nelze podvrhnout
       if (o.coll === 'jizdy' && !jeMajitel) data.financni = staryData ? (staryData.financni || null) : null; // finance řidič nemění
       const nahrano = {};
 
