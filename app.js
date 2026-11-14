@@ -610,7 +610,7 @@ function jizdyVirtualni(typ, mesicFiltr) {
     const ridic = state.role === 'owner' ? (eonRidiciJmena().join(', ') || '—') : state.driverName;
     Object.entries(state.eonDny || {}).forEach(([k, rec]) => {
       if (mesicFiltr && k !== mesicFiltr) return;
-      Object.keys((rec && rec.dny) || {}).forEach(iso => rows.push({ datum: iso, ridic, vozidlo: '—', trasa: 'Eon 20001+', km: '', pozn: state.role === 'owner' ? `paušál: příjem ${EON_PRIJEM_ZA_DEN} Kč, výplata ${EON_KC_ZA_DEN} Kč` : 'paušál' }));
+      Object.keys((rec && rec.dny) || {}).forEach(iso => rows.push({ datum: iso, ridic, vozidlo: '—', trasa: 'Eon 20001+', km: '', pozn: state.role === 'owner' ? `paušál: příjem ${EON_PRIJEM_ZA_DEN} Kč, výplata ${EON_KC_ZA_DEN} Kč` : `výdělek ${EON_KC_ZA_DEN} Kč` }));
     });
   } else {
     const mesic = mesicFiltr || dnes.slice(0, 7);   // bez filtru měsíce se ukáže aktuální měsíc (řádků je hodně)
@@ -788,6 +788,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 31, datum: '2026-11-14', text: 'Trasa Eon: řidička Renata Lišková opět vidí svůj výdělek (čistých 200 Kč za den) po dnech v měsíci i celkem za všechny měsíce; příjem od klienta (250 Kč) a cokoli dalšího z financí vidí dál jen majitel.' },
   { id: 30, datum: '2026-11-14', text: 'Řidič (i vedoucí dopravy za svou trasu) má na hlavní stránce přehled „Moje najeté km": každý den, kolik najel, a jestli se záznam opravdu uložil na server; chybějící dny s tlačítkem Zapsat km. Řidiči nikde nevidí ceny, náklady ani příjmy (odebrány náklady PHM, ceny tankování a částka paušálu Eon).' },
   { id: 29, datum: '2026-11-13', text: 'Mapy tras (zdarma, bez klíče): v Kompletním přehledu a v Malé dopravě mapa se všemi trasami, každá jinou barvou s popisem, kudy jede; mapa dne v kalendáři; u linek mapa a u každé jízdy tlačítko 🗺️. Zastávky se zadávají u trasy (klik na číslo trasy) nebo u linky.' },
   { id: 28, datum: '2026-11-13', text: 'Jízdy: stav tachometru při výjezdu a příjezdu (km se spočítají samy, výjezd se předvyplní podle vozidla), časy výjezdu a příjezdu s dobou jízdy a linky (např. GW Jihotrans) s výběrem směru tam / zpět. PNS: řidič v hlášení zadá tachometr a appka spočítá najeté km za den i objížďku. Vozidla: aktuální stav tachometru a upozornění na servis podle najetých km.' },
@@ -3506,6 +3507,14 @@ function eonSouhrnMajitele(year, month) {
 }
 const kcFmt = (n) => n.toLocaleString('cs-CZ') + ' Kč';
 function eonCastkaMesice(year, month) { return eonPocetDnuMesice(year, month) * EON_KC_ZA_DEN; }
+// Přehled výdělku řidičky Eon (její čistých 200 Kč za den): jednotlivé dny zvoleného měsíce a součet za všechny měsíce — žádné příjmy od klienta
+function eonVydelekHtml(year, month) {
+  const dny = Object.keys(eonDnyMesice(year, month)).sort();
+  const celkemDnu = Object.values(state.eonDny || {}).reduce((s, r) => s + Object.keys((r && r.dny) || {}).length, 0);
+  const chip = (iso) => `<span style="display:inline-block; margin:3px 6px 3px 0; padding:3px 9px; border-radius:999px; background:rgba(16,185,129,0.14); font-size:12px;">${formatDate(iso)} · <b>${EON_KC_ZA_DEN} Kč</b></span>`;
+  return `<div style="margin-top:10px;">${dny.map(chip).join('') || '<span style="color:var(--dim); font-size:12.5px;">V tomto měsíci zatím žádný zapsaný den.</span>'}</div>
+    <div style="font-size:13px; margin-top:8px; color:var(--muted);">Celkem vydělaná za všechny měsíce: <b style="color:var(--green);">${kcFmt(celkemDnu * EON_KC_ZA_DEN)}</b> (${celkemDnu} ${celkemDnu === 1 ? 'den' : celkemDnu < 5 && celkemDnu > 0 ? 'dny' : 'dní'})</div>`;
+}
 function eonRidiciJmena() { return state.ridici.filter(r => r.eon).map(r => r.jmeno); }
 function eonDashMesic() {
   const d = new Date(new Date().getFullYear(), new Date().getMonth() + eonDashOffset, 1);
@@ -3548,8 +3557,9 @@ function renderEonKarta(year, month, ctx) {
         ${cells}
       </div>
       <div style="margin-top:14px; padding:12px 14px; border:1px solid var(--green); border-radius:var(--radius-sm); background:rgba(16,185,129,0.08);">
-        <div style="font-size:13px;">Jela <b id="eonPocet">${eonPocetDnuMesice(year, month)}</b> dní v měsíci ${EON_MESICE[month].toLowerCase()}${ctx === 'mala' ? ` × ${EON_KC_ZA_DEN} Kč za den (paušál)` : ''}</div>
-        ${ctx === 'mala' ? `<div style="font-size:16px; margin-top:4px;">K vyplacení řidičce: <b id="eonCastka" style="color:var(--green); font-size:20px;">${kcFmt(eonCastkaMesice(year, month))}</b></div>` : ''}
+        <div style="font-size:13px;">Jela <b id="eonPocet">${eonPocetDnuMesice(year, month)}</b> dní v měsíci ${EON_MESICE[month].toLowerCase()} × ${EON_KC_ZA_DEN} Kč za den (paušál)</div>
+        <div style="font-size:16px; margin-top:4px;">${ctx === 'mala' ? 'K vyplacení řidičce' : 'Za tento měsíc jsi vydělala'}: <b id="eonCastka" style="color:var(--green); font-size:20px;">${kcFmt(eonCastkaMesice(year, month))}</b></div>
+        ${ctx === 'mala' ? '' : `<div id="eonVydelekDny">${eonVydelekHtml(year, month)}</div>`}
         ${ctx === 'mala' ? `<div id="eonSouhrnMajitele" style="font-size:13px; margin-top:6px; color:var(--muted);">${eonSouhrnMajitele(year, month)}</div>` : ''}
       </div>
     </div>
@@ -3579,6 +3589,7 @@ function bindEon(ctx) {
     const { year, month } = mesic();
     document.getElementById('eonPocet').textContent = eonPocetDnuMesice(year, month);
     const castkaEl = document.getElementById('eonCastka'); if (castkaEl) castkaEl.textContent = kcFmt(eonCastkaMesice(year, month));
+    const vydelekEl = document.getElementById('eonVydelekDny'); if (vydelekEl) vydelekEl.innerHTML = eonVydelekHtml(year, month);
     const souhrn = document.getElementById('eonSouhrnMajitele');
     if (souhrn) souhrn.innerHTML = eonSouhrnMajitele(year, month);
     const mesice = document.getElementById('jizdyMesiceBody');   // přehled jízd na dashboardu se přepočítá hned
