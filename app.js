@@ -80,12 +80,12 @@ function holidayName(iso) {
   return _holidayCache[year][iso] || null;
 }
 // Pravidla jízdních dnů viz dnyNejedeDuvod (PNS) a isEonDay (Eon)
-// Malá doprava (PNS): jede se každý den kromě soboty. Státní svátek se jede, ale nejede se den před ním.
+// Malá doprava (PNS): jezdí se vždy až po půlnoci daného dne (datum = den rozvozu). Nejede se v neděli a o státních svátcích.
 function dnyNejedeDuvod(iso) {
   const [y, m, d] = iso.split('-').map(Number);
-  if (new Date(y, m - 1, d).getDay() === 6) return 'sobota';
-  const sv = holidayName(toISO(new Date(y, m - 1, d + 1)));
-  if (sv) return 'den před svátkem (' + sv + ')';
+  if (new Date(y, m - 1, d).getDay() === 0) return 'neděle';
+  const sv = holidayName(iso);
+  if (sv) return 'státní svátek (' + sv + ')';
   return null;
 }
 function isDrivingDay(iso) { return dnyNejedeDuvod(iso) === null; }
@@ -427,14 +427,14 @@ function renderDashboard() {
           </tbody>
         </table>
       </div>
-      <div class="card-panel">
+      ${state.role !== 'driver' ? `<div class="card-panel">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
           <h3 style="margin-bottom:0;">⚠️ Upozornění</h3>
           ${renderNotifikaceOvladani()}
         </div>
         <p class="csub">Blížící se termíny.</p>
         ${renderUpozorneni()}
-      </div>
+      </div>` : ''}
     </div>
 
     ${isOwner ? `
@@ -790,6 +790,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 34, datum: '2026-11-17', text: 'Opraveny jízdní dny malé dopravy PNS: jezdí se vždy až po půlnoci daného dne, tedy každý den kromě neděle a státních svátků (sobota se jede). Řidiči už nevidí STK, pojistky ani upozornění k vozidlům a řidičům.' },
   { id: 33, datum: '2026-11-14', text: 'Tankování: zápis stavu tachometru a „natankováno do plné nádrže"; appka dopočítá spotřebu (l/100 km) z ujetých km od posledního plného tankování, ukáže ji hned ve formuláři i v seznamu s porovnáním s normou. Reporty počítají spotřebu vozidel z tachometru, když je k dispozici.' },
   { id: 32, datum: '2026-11-14', text: 'Hlášení o řidičích: vedoucí dopravy (Romana) zapíše nehodu, srážku se zvěří, poškození vozidla, pozdní příchod, pokutu od policie nebo celního úřadu, porušení pravidel nebo stížnost; majitel je vidí v kartě Hlášení o řidičích v Kompletním přehledu (nová, přečtená, filtr podle řidiče a měsíce, export). Řidič je nevidí.' },
   { id: 31, datum: '2026-11-14', text: 'Trasa Eon: řidička Renata Lišková opět vidí svůj výdělek (čistých 200 Kč za den) po dnech v měsíci i celkem za všechny měsíce; příjem od klienta (250 Kč) a cokoli dalšího z financí vidí dál jen majitel.' },
@@ -1889,6 +1890,7 @@ function bindDashboard() {
 // Pole "dny" = počet dní do termínu (záporné = po termínu); u STK/pojistky/známky/karty řidiče bez přesného
 // vlastního okna dopočítáme dny stejně jako zobrazený počet.
 function ziskatVarovani() {
+  if (state.role === 'driver') return [];   // řidič nevidí STK, pojistky ani termíny cizích vozidel a řidičů
   const dnes = new Date();
   const varovani = [];
   state.vozidla.forEach(v => {
@@ -3607,7 +3609,7 @@ function renderMalaDoprava() {
 
   return `
     <div class="page-head">
-      <div><h1>📰 Malá doprava — PNS</h1><p>Rozvoz tisku, ${PNS_ROUTES.length} tras. Jede se každý den kromě soboty a dne před státním svátkem (svátek samotný se jede).</p></div>
+      <div><h1>📰 Malá doprava — PNS</h1><p>Rozvoz tisku, ${PNS_ROUTES.length} tras. Jezdí se vždy až po půlnoci daného dne: každý den kromě neděle a státních svátků.</p></div>
       <div class="page-actions"><button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Tisk / PDF</button><button class="btn btn-ghost btn-sm" onclick="openExportObjizdekModal()">📥 Export objížděk</button></div>
     </div>
 
@@ -3937,7 +3939,7 @@ function renderHromadnaObjizdkaModal() {
           <h2 style="margin-bottom:2px;">🛣️ Hromadná objížďka</h2>
           <button class="btn btn-ghost btn-sm" onclick="closeModal('hromadnaObjizdkaModal')">✕</button>
         </div>
-        <p class="modal-sub">Zadej km navíc jednou pro celé období — appka je zapíše na každý jízdní den (přeskočí soboty a dny před státním svátkem).</p>
+        <p class="modal-sub">Zadej km navíc jednou pro celé období — appka je zapíše na každý jízdní den (přeskočí neděle a státní svátky).</p>
 
         <div class="form-row">
           <label>Trasa *</label>
@@ -4030,7 +4032,7 @@ function bindHromadnaObjizdka() {
     if (!km || km <= 0) { alert('Zadej počet km navíc.'); return; }
 
     const dny = jizdniDnyVRozmezi(od, doD);
-    if (dny.length === 0) { alert('V tomto rozmezí není žádný jízdní den (samé soboty / dny před svátkem).'); return; }
+    if (dny.length === 0) { alert('V tomto rozmezí není žádný jízdní den (samé neděle / státní svátky).'); return; }
 
     dny.forEach(iso => {
       if (!state.malaDoprava[iso]) state.malaDoprava[iso] = { vyjimky: {}, nakladyRidic:0, nakladyAuto:0, nakladyOstatni:0 };

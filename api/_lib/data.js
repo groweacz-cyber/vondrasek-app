@@ -8,9 +8,12 @@ const MAX_FOTKA = 700000;                   // max. velikost fotky účtenky (ba
 // sazby nákladů vozidla (amortizace, mýto) jsou jen pro majitele
 function bezNakladuVozidla(data) { const { amortizaceKm, mytoKm, servisKm, fixniMesicne, ...zbytek } = data; return zbytek; }
 
+// Řidič nevidí ani termíny vozidel (STK, pojistka, dálniční známka, tachograf) ani servisní plán — to hlídá jen majitel a vedoucí dopravy
+function bezTerminuVozidla(data) { const { stk, pojistka, dalnicniZnamka, posledniStazeniTacho, servisPoKm, servisTachStav, servisDatum, ...zbytek } = bezNakladuVozidla(data); return zbytek; }
+
 function projekceProRidice(coll, data) {
   if (!data) return data;
-  if (coll === 'vozidla') return bezNakladuVozidla(data);
+  if (coll === 'vozidla') return bezTerminuVozidla(data);
   if (coll === 'ridici') return { id: data.id, jmeno: data.jmeno, malaDoprava: !!data.malaDoprava, velkaDoprava: !!data.velkaDoprava };
   if (coll === 'jizdy') { const { financni, ...zbytek } = data; return zbytek; }
   return data;
