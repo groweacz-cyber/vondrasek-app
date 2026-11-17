@@ -420,7 +420,7 @@ function renderDashboard() {
               <tr>
                 <td>${formatDate(j.datum)}</td>
                 <td>${j.ridic}</td>
-                <td>${j.trasaOd} → ${j.trasaDo}</td>
+                <td>${escH(jizdaTrasaText(j))}</td>
                 <td style="text-align:right">${j.km}</td>
               </tr>
             `).join('') || '<tr><td colspan="4" class="empty-state">Žádné jízdy</td></tr>'}
@@ -790,6 +790,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 35, datum: '2026-11-17', text: 'Jízdy (vnitro i zahraničí): místo výjezdu, vykládka (volitelně víc, tlačítko „+ Další vykládka") a cíl příjezdu; k jízdě jde přidat vlek z nabídky. Linky jdou nastavit i u zahraničních přeprav (platí pro vnitro / mimo ČR / obojí) a pevně přiřadit řidiči nebo nechat volitelné. Ve Vozidlech klik na vozidlo ukáže historii tankování a spotřeby (graf, měsíce). Nový druh vozidla Sólo.' },
   { id: 34, datum: '2026-11-17', text: 'Opraveny jízdní dny malé dopravy PNS: jezdí se vždy až po půlnoci daného dne, tedy každý den kromě neděle a státních svátků (sobota se jede). Řidiči už nevidí STK, pojistky ani upozornění k vozidlům a řidičům.' },
   { id: 33, datum: '2026-11-14', text: 'Tankování: zápis stavu tachometru a „natankováno do plné nádrže"; appka dopočítá spotřebu (l/100 km) z ujetých km od posledního plného tankování, ukáže ji hned ve formuláři i v seznamu s porovnáním s normou. Reporty počítají spotřebu vozidel z tachometru, když je k dispozici.' },
   { id: 32, datum: '2026-11-14', text: 'Hlášení o řidičích: vedoucí dopravy (Romana) zapíše nehodu, srážku se zvěří, poškození vozidla, pozdní příchod, pokutu od policie nebo celního úřadu, porušení pravidel nebo stížnost; majitel je vidí v kartě Hlášení o řidičích v Kompletním přehledu (nová, přečtená, filtr podle řidiče a měsíce, export). Řidič je nevidí.' },
@@ -1798,7 +1799,7 @@ function renderMojeKmKarta() {
   }
   jz.forEach(j => {
     kmSoucet += +j.km || 0;
-    radky.push({ iso: j.datum, html: `<tr><td>${formatDate(j.datum)}</td><td>${escH(j.trasaOd)} → ${escH(j.trasaDo)}${j.tachDo ? `<div style="font-size:11.5px; color:var(--dim);">tachometr ${(+j.tachOd).toLocaleString('cs-CZ')} → ${(+j.tachDo).toLocaleString('cs-CZ')}</div>` : ''}</td>
+    radky.push({ iso: j.datum, html: `<tr><td>${formatDate(j.datum)}</td><td>${escH(jizdaTrasaText(j))}${j.tachDo ? `<div style="font-size:11.5px; color:var(--dim);">tachometr ${(+j.tachOd).toLocaleString('cs-CZ')} → ${(+j.tachDo).toLocaleString('cs-CZ')}</div>` : ''}</td>
       <td style="text-align:right"><b>${j.km} km</b></td><td>${stav('jizdy', j)}</td></tr>` });
   });
   radky.sort((a, b) => b.iso.localeCompare(a.iso));
@@ -1902,7 +1903,7 @@ function ziskatVarovani() {
     if (dz <= 60 && dz >= 0) varovani.push({ ico:'🛣️', text:`Dálniční známka vozidla ${v.spz} za ${dz} dní`, level: dz<=30?'err':'warn', dny: dz });
     const sk = state.role === 'owner' ? servisKmStav(v) : null;
     if (sk && sk.zbyva <= 1000) varovani.push({ ico:'🛠️', text: sk.zbyva <= 0 ? `Servis vozidla ${v.spz} je po intervalu o ${(-sk.zbyva).toLocaleString('cs-CZ')} km` : `Servis vozidla ${v.spz} za ${sk.zbyva.toLocaleString('cs-CZ')} km`, level: sk.zbyva <= 300 ? 'err' : 'warn' });
-    if (['Kamion','Tahač'].includes(v.typ)) {
+    if (TACHO_TYPY.includes(v.typ)) {
       const t = stazeniVarovani(`Stažení tachografu vozidla ${v.spz}`, v.posledniStazeniTacho, 90);
       if (t) varovani.push({ ico:'📡', ...t });
     }
@@ -2004,7 +2005,7 @@ function renderJizdyRows(list, isOwner, zobrazitTyp = true) {
     return `
     <tr>
       <td>${formatDate(j.datum)}</td><td>${j.ridic}</td><td>${j.vozidlo}</td>
-      <td><button class="btn btn-ghost btn-sm" style="padding:1px 7px; margin-right:6px;" onclick="jizdaMapa(${j.id})" title="Mapa trasy">🗺️</button>${typBadge}${j.trasaOd} → ${j.trasaDo}${(j.linka || j.tachDo || j.dobaMin) ? `<div style="font-size:11.5px; color:var(--dim); margin-top:2px;">${[j.linka ? '🛣️ ' + escH(j.linka) : '', j.tachDo ? 'tach. ' + (+j.tachOd).toLocaleString('cs-CZ') + ' → ' + (+j.tachDo).toLocaleString('cs-CZ') : '', j.dobaMin ? '⏱ ' + formatDoba(j.dobaMin) + ' (' + j.casOd + '–' + j.casDo + ')' : ''].filter(Boolean).join(' · ')}</div>` : ''}</td>
+      <td><button class="btn btn-ghost btn-sm" style="padding:1px 7px; margin-right:6px;" onclick="jizdaMapa(${j.id})" title="Mapa trasy">🗺️</button>${typBadge}${escH(jizdaTrasaText(j))}${(j.linka || j.vlek || j.tachDo || j.dobaMin) ? `<div style="font-size:11.5px; color:var(--dim); margin-top:2px;">${[j.linka ? '🛣️ ' + escH(j.linka) : '', j.vlek ? '🚛 vlek ' + escH(j.vlek) : '', j.tachDo ? 'tach. ' + (+j.tachOd).toLocaleString('cs-CZ') + ' → ' + (+j.tachDo).toLocaleString('cs-CZ') : '', j.dobaMin ? '⏱ ' + formatDoba(j.dobaMin) + ' (' + j.casOd + '–' + j.casDo + ')' : ''].filter(Boolean).join(' · ')}</div>` : ''}</td>
       <td style="text-align:right">${j.km}</td>
       <td style="color:var(--muted);font-size:12.5px;">${j.poznamka||'—'}</td>
       ${isOwner?`<td style="text-align:right">${ziskBadge(j.financni)}</td>
@@ -2040,7 +2041,7 @@ function bindJizdy() {
       return;
     }
     let list = mojeJizdy();
-    if (q) list = list.filter(j => `${j.ridic} ${j.trasaOd} ${j.trasaDo} ${j.vozidlo} ${j.poznamka||''}`.toLowerCase().includes(q));
+    if (q) list = list.filter(j => `${j.ridic} ${jizdaTrasaText(j)} ${j.vlek||''} ${j.vozidlo} ${j.poznamka||''}`.toLowerCase().includes(q));
     if (m) list = list.filter(j => j.datum.startsWith(m));
     if (typ) list = list.filter(j => (j.typ || 'cz') === typ);
     document.getElementById('jizdyBody').innerHTML = renderJizdyRows(list, isOwner);
@@ -2067,6 +2068,9 @@ function bindJizdaForm(sekceProRenderPoUlozeni) {
       vozidlo, typ: fd.get('typ') === 'eu' ? 'eu' : 'cz', trasaOd: fd.get('trasaOd'), trasaDo: fd.get('trasaDo'),
       km: +fd.get('km'), poznamka: fd.get('poznamka'), financni: null
     };
+    const vykladky = fd.getAll('vykladka').map(s => String(s).trim()).filter(Boolean);
+    if (vykladky.length) zapis.vykladky = vykladky;
+    if (fd.get('vlek')) zapis.vlek = fd.get('vlek');
     const tOd = fd.get('tachOd'), tDo = fd.get('tachDo');
     if (tOd !== null && tDo !== null && tOd !== '' && tDo !== '') {
       if (!(+tDo > +tOd)) { alert('Tachometr při příjezdu musí být vyšší než při výjezdu.'); return; }
@@ -2105,7 +2109,7 @@ function renderFinanceModal(j={}, f={}) {
     <div class="modal-overlay" id="financeModal">
       <div class="modal">
         <h2>💰 Finance na jízdu</h2>
-        <p class="modal-sub">${j.trasaOd ? `${j.trasaOd} → ${j.trasaDo} · ${formatDate(j.datum)} · ${j.km} km` : 'Vyplň fakturovanou částku a náklady na tuto jízdu.'}</p>
+        <p class="modal-sub">${j.trasaOd ? `${jizdaTrasaText(j)} · ${formatDate(j.datum)} · ${j.km} km` : 'Vyplň fakturovanou částku a náklady na tuto jízdu.'}</p>
         <form id="financeForm">
           <input type="hidden" name="jizdaId" value="${j.id||''}">
           <div class="form-row">
@@ -2277,22 +2281,34 @@ function hlaseniKmText(h) {
   return `<b style="color:var(--amber);">+${h.km} km</b>`;
 }
 
-// Linky (např. GW Jihotrans) — pevné trasy, které řidič vybere jedním klikem; spravuje je majitel na stránce Velká doprava (CZ)
-function renderLinkyKarta() {
-  const radky = (state.linky || []).map(l => {
+// Celá trasa jízdy: místo výjezdu → vykládky (žádná až víc) → cíl příjezdu
+const jizdaTrasaPole = (j) => [j.trasaOd, ...(j.vykladky || []), j.trasaDo].filter(Boolean);
+const jizdaTrasaText = (j) => jizdaTrasaPole(j).join(' → ');
+const LINKA_TYPY = { cz: 'Vnitro (ČR)', eu: 'Mimo ČR', obe: 'Vnitro i mimo ČR' };
+const linkaPlatiPro = (l, typ) => { const t = l.typ || 'obe'; return t === 'obe' || t === typ; };
+const jmenoRidiceId = (id) => { const r = state.ridici.find(x => String(x.id) === String(id)); return r ? r.jmeno : ''; };
+
+// Linky (např. GW Jihotrans) — pevné trasy, které řidič vybere jedním klikem; spravuje je majitel na stránkách Velká doprava (CZ i EU).
+// Linka může mít stálého řidiče (pevné přiřazení: v jeho formuláři jízdy je nahoře) nebo žádného (volitelná, jede ji kdokoli).
+function renderLinkyKarta(typ) {
+  const seznam = (state.linky || []).filter(l => linkaPlatiPro(l, typ));
+  const radky = seznam.map(l => {
     const pocet = state.jizdy.filter(j => String(j.linkaId) === String(l.id)).length;
-    return `<tr><td><b>${escH(l.nazev)}</b></td><td>${escH(l.odkud)} ⇄ ${escH(l.kam)}</td><td style="text-align:right">${l.km ? (+l.km).toLocaleString('cs-CZ') + ' km' : '—'}</td><td style="text-align:right">${pocet}</td>
+    const trasa = [l.odkud, ...mapaRadky(l.pres), l.kam].map(escH).join(' → ');
+    return `<tr><td><b>${escH(l.nazev)}</b><div style="font-size:11.5px; color:var(--dim);">${LINKA_TYPY[l.typ || 'obe']}</div></td><td style="font-size:12.5px;">${trasa}</td>
+      <td>${l.ridicId ? `👷 ${escH(jmenoRidiceId(l.ridicId) || '—')}` : '<span style="color:var(--dim);">volitelná</span>'}</td>
+      <td style="text-align:right">${l.km ? (+l.km).toLocaleString('cs-CZ') + ' km' : '—'}</td><td style="text-align:right">${pocet}</td>
       <td style="display:flex;gap:6px;"><button class="btn btn-ghost btn-sm" onclick="editLinka(${l.id})">Upravit</button><button class="btn btn-danger btn-sm" onclick="deleteLinka(${l.id})">Smazat</button></td></tr>`;
   }).join('');
   return `
     <div class="card-panel" style="margin-bottom:20px;">
       <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
         <h3 style="margin-bottom:0;">🛣️ Linky (např. GW Jihotrans)</h3>
-        <button class="btn btn-ghost btn-sm" onclick="editLinka()">+ Nová linka</button>
+        <button class="btn btn-ghost btn-sm" onclick="editLinka(0, '${typ}')">+ Nová linka</button>
       </div>
-      <p class="csub">Nastav linku jednou (název, odkud, kam, km). Řidič pak ve formuláři jízdy jen vybere linku a směr a trasa i km se doplní samy. Finance se zadávají jako u každé jízdy (💰 Finance).</p>
-      ${radky ? `<table class="data-table"><thead><tr><th>Linka</th><th>Trasa</th><th style="text-align:right">km</th><th style="text-align:right">Jízd</th><th></th></tr></thead><tbody>${radky}</tbody></table>
-      <div class="mapa-panel-misto" data-scope="linky" style="margin-top:14px;"></div>` : `<div class="empty-state"><div class="empty-ic">🛣️</div>Zatím žádná linka.</div>`}
+      <p class="csub">Nastav linku jednou (název, výjezd, případné zastávky s vykládkou, cíl, km). Řidič pak ve formuláři jízdy jen vybere linku a směr a trasa i km se doplní samy. Linku můžeš pevně přiřadit řidiči (je mu nabízená nahoře), nebo ji nechat volitelnou pro všechny. Finance se zadávají jako u každé jízdy (💰 Finance).</p>
+      ${radky ? `<table class="data-table"><thead><tr><th>Linka</th><th>Trasa</th><th>Řidič</th><th style="text-align:right">km</th><th style="text-align:right">Jízd</th><th></th></tr></thead><tbody>${radky}</tbody></table>
+      <div class="mapa-panel-misto" data-scope="linky:${typ}" style="margin-top:14px;"></div>` : `<div class="empty-state"><div class="empty-ic">🛣️</div>Zatím žádná linka pro tuto dopravu.</div>`}
     </div>`;
 }
 function renderLinkaModal(l = {}) {
@@ -2305,10 +2321,18 @@ function renderLinkaModal(l = {}) {
           <input type="hidden" name="editId" value="${l.id || ''}">
           <div class="form-row"><label>Název linky *</label><input type="text" name="nazev" required value="${escH(l.nazev || '')}" placeholder="např. GW Jihotrans — linka 1"></div>
           <div class="form-cols-2">
-            <div class="form-row"><label>Odkud *</label><input type="text" name="odkud" required value="${escH(l.odkud || '')}"></div>
-            <div class="form-row"><label>Kam *</label><input type="text" name="kam" required value="${escH(l.kam || '')}"></div>
+            <div class="form-row"><label>Platí pro *</label>
+              <select name="typ">${Object.entries(LINKA_TYPY).map(([k, n]) => `<option value="${k}" ${(l.typ || (l.id ? 'obe' : 'cz')) === k ? 'selected' : ''}>${n}</option>`).join('')}</select>
+            </div>
+            <div class="form-row"><label>Stálý řidič</label>
+              <select name="ridicId"><option value="">— volitelná, může jet kdokoli —</option>${state.ridici.map(r => `<option value="${r.id}" ${String(l.ridicId) === String(r.id) ? 'selected' : ''}>${escH(r.jmeno)}</option>`).join('')}</select>
+            </div>
           </div>
-          <div class="form-row"><label>Přes zastávky (nepovinné, jedna na řádek)</label><textarea name="pres" rows="2" placeholder="např. Třeboň, náměstí">${escH(l.pres || '')}</textarea>
+          <div class="form-cols-2">
+            <div class="form-row"><label>Místo výjezdu *</label><input type="text" name="odkud" required value="${escH(l.odkud || '')}"></div>
+            <div class="form-row"><label>Cíl příjezdu *</label><input type="text" name="kam" required value="${escH(l.kam || '')}"></div>
+          </div>
+          <div class="form-row"><label>Vykládky / zastávky mezi tím (nepovinné, jedna na řádek)</label><textarea name="pres" rows="3" placeholder="např. Třeboň, náměstí">${escH(l.pres || '')}</textarea>
             <span style="font-size:11px; color:var(--dim); margin-top:4px; display:block;">Po uložení appka najde trasu na mapě; názvy míst piš i s městem.</span></div>
           <div class="form-row"><label>Vzdálenost (km, jedním směrem)</label><input type="number" name="km" min="0" step="1" value="${l.km || ''}" placeholder="doplní se do jízdy, když řidič nezadá tachometr"></div>
           <div class="modal-actions">
@@ -2319,12 +2343,13 @@ function renderLinkaModal(l = {}) {
       </div>
     </div>`;
 }
+const aktualniStranka = () => (document.querySelector('.nav-item.active') || {}).dataset ? document.querySelector('.nav-item.active').dataset.section : 'velka-cz';
 function wireLinkaModal() {
   const form = document.getElementById('linkaForm'); if (!form) return;
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(form), editId = fd.get('editId');
-    const data = { nazev: String(fd.get('nazev')).trim(), odkud: String(fd.get('odkud')).trim(), kam: String(fd.get('kam')).trim(), pres: String(fd.get('pres') || '').trim(), km: +fd.get('km') || 0, mapa: null, mapaKlic: '' };
+    const data = { nazev: String(fd.get('nazev')).trim(), typ: fd.get('typ') || 'obe', ridicId: fd.get('ridicId') || '', odkud: String(fd.get('odkud')).trim(), kam: String(fd.get('kam')).trim(), pres: String(fd.get('pres') || '').trim(), km: +fd.get('km') || 0, mapa: null, mapaKlic: '' };
     const puvodni = editId ? state.linky.find(x => x.id === +editId) : null;
     const texty = [data.odkud, ...mapaRadky(data.pres), data.kam], klic = texty.join('\n');
     if (puvodni && puvodni.mapa && puvodni.mapaKlic === klic) { data.mapa = puvodni.mapa; data.mapaKlic = klic; }
@@ -2340,21 +2365,21 @@ function wireLinkaModal() {
     }
     if (editId) { const i = state.linky.findIndex(x => x.id === +editId); if (i >= 0) state.linky[i] = { ...state.linky[i], ...data }; }
     else state.linky.push({ id: Date.now(), ...data });
-    saveState(); closeModal('linkaModal'); renderSection('velka-cz');
+    saveState(); closeModal('linkaModal'); renderSection(aktualniStranka());
   });
 }
-window.editLinka = function(id) {
+window.editLinka = function(id, typ) {
   const l = id ? state.linky.find(x => x.id === id) : null;
   const stary = document.getElementById('linkaModal'); if (!stary) return;
-  stary.outerHTML = renderLinkaModal(l || {});
+  stary.outerHTML = renderLinkaModal(l || { typ: typ || 'cz' });
   wireLinkaModal(); openModal('linkaModal');
 };
 window.deleteLinka = function(id) {
   if (!confirm('Smazat linku? Už zapsané jízdy zůstanou, jen se ztratí vazba na linku.')) return;
-  state.linky = state.linky.filter(x => x.id !== id); saveState(); renderSection('velka-cz');
+  state.linky = state.linky.filter(x => x.id !== id); saveState(); renderSection(aktualniStranka());
 };
 
-// Formulář jízdy: linka + směr doplní trasu, tachometr dopočítá km, časy dopočítají dobu jízdy
+// Formulář jízdy: linka + směr doplní trasu (výjezd, vykládky, cíl), tachometr dopočítá km, časy dopočítají dobu jízdy
 function wireJizdaExtras(form) {
   if (!form || !form.elements['tachOd']) return;
   const f = (n) => form.elements[n];
@@ -2380,23 +2405,57 @@ function wireJizdaExtras(form) {
   };
   f('vozidlo').addEventListener('change', predvyplnVyjezd);
   ['tachOd', 'tachDo', 'casOd', 'casDo'].forEach(n => f(n).addEventListener('input', prepocitej));
-  const linkaSel = f('linka');
-  if (linkaSel) {
-    const smerSel = f('smer'), smerRow = form.querySelector('#linkaSmerRow');
-    const aplikuj = () => {
-      const l = state.linky.find(x => String(x.id) === linkaSel.value);
-      if (!l) { smerRow.style.display = 'none'; return; }
-      if (smerSel.dataset.linka !== linkaSel.value) {
-        smerSel.innerHTML = `<option value="tam">→ ${escH(l.odkud)} → ${escH(l.kam)}</option><option value="zpet">← ${escH(l.kam)} → ${escH(l.odkud)}</option>`;
-        smerSel.dataset.linka = linkaSel.value;
-      }
-      smerRow.style.display = '';
-      const tam = smerSel.value !== 'zpet';
-      f('trasaOd').value = tam ? l.odkud : l.kam; f('trasaDo').value = tam ? l.kam : l.odkud;
-      if (!(f('tachOd').value && f('tachDo').value) && +l.km > 0) f('km').value = l.km;
-    };
-    linkaSel.addEventListener('change', aplikuj); smerSel.addEventListener('change', aplikuj);
-  }
+
+  // Vykládky: žádná až víc, přidávají se tlačítkem
+  const box = form.querySelector('#vykladkyBox');
+  const radekVykladky = (hodnota) => {
+    const d = document.createElement('div');
+    d.className = 'vykladka-row'; d.style.cssText = 'display:flex; gap:8px; margin-bottom:8px;';
+    d.innerHTML = `<input type="text" name="vykladka" placeholder="např. Mnichov" style="flex:1;"><button type="button" class="btn btn-ghost btn-sm" title="Odebrat vykládku">✕</button>`;
+    d.querySelector('input').value = hodnota || '';
+    d.querySelector('button').addEventListener('click', () => d.remove());
+    return d;
+  };
+  const nastavVykladky = (pole) => { box.innerHTML = ''; (pole.length ? pole : ['']).forEach(v => box.appendChild(radekVykladky(v))); };
+  nastavVykladky([]);
+  form.querySelector('#btnDalsiVykladka').addEventListener('click', () => { const r = radekVykladky(''); box.appendChild(r); r.querySelector('input').focus(); });
+
+  // Linky: nabídka podle typu dopravy a řidiče (nejdřív jeho pevné linky), po výběru se doplní trasa
+  const linkaSel = f('linka'), smerSel = f('smer'), smerRow = form.querySelector('#linkaSmerRow'), linkaRadek = form.querySelector('#linkaRadek');
+  const idRidice = () => String(idRidiceZVyberu(f('ridic').value));
+  const aplikuj = () => {
+    const l = state.linky.find(x => String(x.id) === linkaSel.value);
+    if (!l) { smerRow.style.display = 'none'; return; }
+    const pres = mapaRadky(l.pres);
+    if (smerSel.dataset.linka !== linkaSel.value) {
+      smerSel.innerHTML = `<option value="tam">→ ${escH(l.odkud)} → ${escH(l.kam)}</option><option value="zpet">← ${escH(l.kam)} → ${escH(l.odkud)}</option>`;
+      smerSel.dataset.linka = linkaSel.value;
+    }
+    smerRow.style.display = '';
+    const tam = smerSel.value !== 'zpet';
+    f('trasaOd').value = tam ? l.odkud : l.kam; f('trasaDo').value = tam ? l.kam : l.odkud;
+    nastavVykladky(tam ? pres : pres.slice().reverse());
+    if (!(f('tachOd').value && f('tachDo').value) && +l.km > 0) f('km').value = l.km;
+  };
+  const naplnLinky = (predvybratPevnou) => {
+    const typ = f('typ').value, ridic = idRidice(), stara = linkaSel.value;
+    const dostupne = (state.linky || []).filter(l => linkaPlatiPro(l, typ));
+    const jeJeho = (l) => l.ridicId && String(l.ridicId) === ridic;
+    const moje = dostupne.filter(jeJeho), ostatni = dostupne.filter(l => !jeJeho(l));
+    const opt = (l) => `<option value="${l.id}">${escH(l.nazev)}${l.ridicId && !jeJeho(l) ? ' — ' + escH(jmenoRidiceId(l.ridicId)) : ''}</option>`;
+    linkaSel.innerHTML = '<option value="">— vlastní trasa —</option>'
+      + (moje.length ? `<optgroup label="Linky řidiče">${moje.map(opt).join('')}</optgroup>` : '')
+      + (ostatni.length ? `<optgroup label="${moje.length ? 'Ostatní linky' : 'Linky'}">${ostatni.map(opt).join('')}</optgroup>` : '');
+    if (dostupne.some(l => String(l.id) === stara)) linkaSel.value = stara;
+    else { linkaSel.value = ''; smerRow.style.display = 'none'; }
+    linkaRadek.style.display = dostupne.length ? '' : 'none';
+    // jediná pevná linka řidiče se předvybere (pokud ještě nic nevyplnil)
+    if (predvybratPevnou && moje.length === 1 && !linkaSel.value && !f('trasaOd').value && !f('trasaDo').value) { linkaSel.value = String(moje[0].id); aplikuj(); }
+  };
+  linkaSel.addEventListener('change', aplikuj); smerSel.addEventListener('change', aplikuj);
+  f('typ').addEventListener('change', () => naplnLinky(true));
+  f('ridic').addEventListener('change', () => naplnLinky(true));
+  naplnLinky(true);
   predvyplnVyjezd();
 }
 // Hlášení PNS řidiče: tachometr výjezd/příjezd → najeté km za den
@@ -2427,6 +2486,7 @@ function renderJizdaModal(vychoziTyp, zaJineho = false) {
   const isDriver = state.role === 'driver';
   const isDispecer = state.role === 'dispecer';
   const jeEu = vychoziTyp === 'eu';
+  const vleky = state.vozidla.filter(v => jeNemotorove(v.typ));
   return `
     <div class="modal-overlay" id="jizdaModal">
       <div class="modal">
@@ -2452,7 +2512,7 @@ function renderJizdaModal(vychoziTyp, zaJineho = false) {
           </div>
           <div class="form-row"><label>Vozidlo *</label>
             <select name="vozidlo" required>
-              ${state.vozidla.map(v => {
+              ${state.vozidla.filter(v => !jeNemotorove(v.typ)).map(v => {
                 const posledni = isDriver ? state.lastVozidloPerDriver[state.driverId] : null;
                 const selected = posledni ? v.spz === posledni : false;
                 return `<option value="${v.spz}" ${selected?'selected':''}>${v.spz} — ${v.znacka}</option>`;
@@ -2461,17 +2521,15 @@ function renderJizdaModal(vychoziTyp, zaJineho = false) {
             </select>
             ${isDriver && state.lastVozidloPerDriver[state.driverId] ? '<span style="font-size:11px;color:var(--purple-light);">Předvyplněno podle poslední jízdy</span>' : ''}
           </div>
-          ${(state.linky || []).length ? `
-          <div class="form-cols-2">
-            <div class="form-row"><label>Linka (pevná trasa)</label>
-              <select name="linka"><option value="">— vlastní trasa —</option>${state.linky.map(l => `<option value="${l.id}">${escH(l.nazev)}</option>`).join('')}</select>
-            </div>
+          <div class="form-cols-2" id="linkaRadek" style="display:none;">
+            <div class="form-row"><label>Linka (pevná trasa)</label><select name="linka"><option value="">— vlastní trasa —</option></select></div>
             <div class="form-row" id="linkaSmerRow" style="display:none;"><label>Směr</label><select name="smer"></select></div>
-          </div>` : ''}
-          <div class="form-cols-2">
-            <div class="form-row"><label>Odkud *</label><input type="text" name="trasaOd" required placeholder="např. Praha"></div>
-            <div class="form-row"><label>Kam *</label><input type="text" name="trasaDo" required placeholder="např. Mnichov"></div>
           </div>
+          <div class="form-row"><label>Místo výjezdu *</label><input type="text" name="trasaOd" required placeholder="např. Dolní Třebonín"></div>
+          <div class="form-row" style="margin-bottom:6px;"><label>Vykládka (nepovinné)</label><div id="vykladkyBox"></div>
+            <button type="button" class="btn btn-ghost btn-sm" id="btnDalsiVykladka">+ Další vykládka</button></div>
+          <div class="form-row"><label>Cíl příjezdu *</label><input type="text" name="trasaDo" required placeholder="např. Dolní Třebonín (zpět na sklad)"></div>
+          ${vleky.length ? `<div class="form-row"><label>Vlek (nepovinné)</label><select name="vlek"><option value="">— bez vleku —</option>${vleky.map(v => `<option value="${escH(v.spz)}">${escH(v.spz)} — ${escH(v.znacka || v.typ)}</option>`).join('')}</select></div>` : ''}
           <div class="form-cols-2">
             <div class="form-row"><label>Tachometr — výjezd (km)</label><input type="number" name="tachOd" min="0" step="1" placeholder="stav při výjezdu"></div>
             <div class="form-row"><label>Tachometr — příjezd (km)</label><input type="number" name="tachDo" min="0" step="1" placeholder="stav při příjezdu"></div>
@@ -2501,7 +2559,7 @@ function exportJizdyCSV() {
   const mesic = document.getElementById('jizdyMesic')?.value || '';
   let list = mojeJizdy();
   if (mesic) list = list.filter(j => j.datum.startsWith(mesic));
-  const rows = [['Datum','Typ','Řidič','Vozidlo','Linka','Odkud','Kam','Tachometr výjezd','Tachometr příjezd','km','Čas výjezdu','Čas příjezdu','Doba jízdy (min)','Poznámka'], ...list.map(j=>[j.datum,(j.typ||'cz')==='eu'?'EU':'CZ',j.ridic,j.vozidlo,j.linka||'',j.trasaOd,j.trasaDo,j.tachOd||'',j.tachDo||'',j.km,j.casOd||'',j.casDo||'',j.dobaMin||'',j.poznamka||''])];
+  const rows = [['Datum','Typ','Řidič','Vozidlo','Linka','Místo výjezdu','Vykládky','Cíl příjezdu','Vlek','Tachometr výjezd','Tachometr příjezd','km','Čas výjezdu','Čas příjezdu','Doba jízdy (min)','Poznámka'], ...list.map(j=>[j.datum,(j.typ||'cz')==='eu'?'EU':'CZ',j.ridic,j.vozidlo,j.linka||'',j.trasaOd,(j.vykladky||[]).join(' | '),j.trasaDo,j.vlek||'',j.tachOd||'',j.tachDo||'',j.km,j.casOd||'',j.casDo||'',j.dobaMin||'',j.poznamka||''])];
   const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   downloadFile('jizdy.csv','text/csv;charset=utf-8;','\uFEFF'+csv);
 }
@@ -2542,7 +2600,7 @@ function renderVelkaDoprava(typ) {
       <div class="page-actions"><button class="btn btn-primary" id="btnAddJizdaVelka">+ Nová jízda</button></div>
     </div>
 
-    ${isOwner && typ === 'cz' ? renderLinkyKarta() : ''}
+    ${isOwner ? renderLinkyKarta(typ) : ''}
     ${isOwner ? `
     <div class="metrics" style="margin-bottom:20px;">
       <div class="metric"><div class="m-label">Počet jízd</div><div class="m-value">${list.length}</div></div>
@@ -2569,7 +2627,7 @@ function renderVelkaDoprava(typ) {
     </div>
     ${renderJizdaModal(typ)}
     ${renderFinanceModal()}
-    ${isOwner && typ === 'cz' ? renderLinkaModal() : ''}
+    ${isOwner ? renderLinkaModal({ typ }) : ''}
   `;
 }
 
@@ -2583,7 +2641,7 @@ function bindVelkaDoprava(typ) {
     const q = (document.getElementById('velkaFilter').value||'').toLowerCase();
     const m = document.getElementById('velkaMesic').value;
     let list = jizdyPodleTypu(typ);
-    if (q) list = list.filter(j => `${j.ridic} ${j.trasaOd} ${j.trasaDo} ${j.vozidlo} ${j.poznamka||''}`.toLowerCase().includes(q));
+    if (q) list = list.filter(j => `${j.ridic} ${jizdaTrasaText(j)} ${j.vlek||''} ${j.vozidlo} ${j.poznamka||''}`.toLowerCase().includes(q));
     if (m) list = list.filter(j => j.datum.startsWith(m));
     document.getElementById('velkaBody').innerHTML = renderJizdyRows(list, isOwner, false);
   }
@@ -2592,7 +2650,7 @@ function bindVelkaDoprava(typ) {
 
   bindJizdaForm(sekce);
   if (isOwner) wireFinanceModal();
-  if (isOwner && typ === 'cz') { wireLinkaModal(); mapaPanelyInit(document.getElementById('content')); }
+  if (isOwner) { wireLinkaModal(); mapaPanelyInit(document.getElementById('content')); }
 }
 
 // Export jízd dané kategorie (CZ/EU) i s financemi — podklad pro účetnictví/fakturaci
@@ -2600,12 +2658,12 @@ function exportVelkaDopravaCSV(typ) {
   const mesic = document.getElementById('velkaMesic')?.value || '';
   let list = jizdyPodleTypu(typ);
   if (mesic) list = list.filter(j => j.datum.startsWith(mesic));
-  const rows = [['Datum','Řidič','Vozidlo','Linka','Odkud','Kam','Tachometr výjezd','Tachometr příjezd','km','Čas výjezdu','Čas příjezdu','Doba jízdy (min)','Fakturováno Kč','Náklady Kč','Zisk Kč','Poznámka'], ...list.map(j => {
+  const rows = [['Datum','Řidič','Vozidlo','Linka','Místo výjezdu','Vykládky','Cíl příjezdu','Vlek','Tachometr výjezd','Tachometr příjezd','km','Čas výjezdu','Čas příjezdu','Doba jízdy (min)','Fakturováno Kč','Náklady Kč','Zisk Kč','Poznámka'], ...list.map(j => {
     const f = j.financni;
     const naklady = f ? (+f.palivo||0)+(+f.mytne||0)+(+f.clo||0)+(+f.amortizace||0)+(+f.pojisteni||0)+(+f.ridicNaklad||0)+(+f.ostatni||0) : '';
     const fakturovano = f ? (+f.fakturovano||0) : '';
     const zisk = f ? ((+f.fakturovano||0) - naklady) : '';
-    return [j.datum, j.ridic, j.vozidlo, j.linka||'', j.trasaOd, j.trasaDo, j.tachOd||'', j.tachDo||'', j.km, j.casOd||'', j.casDo||'', j.dobaMin||'', fakturovano, naklady, zisk, j.poznamka||''];
+    return [j.datum, j.ridic, j.vozidlo, j.linka||'', j.trasaOd, (j.vykladky||[]).join(' | '), j.trasaDo, j.vlek||'', j.tachOd||'', j.tachDo||'', j.km, j.casOd||'', j.casDo||'', j.dobaMin||'', fakturovano, naklady, zisk, j.poznamka||''];
   })];
   const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   downloadFile(`velka-doprava-${typ}-${mesic||'vse'}.csv`,'text/csv;charset=utf-8;',String.fromCharCode(0xFEFF)+csv);
@@ -2901,10 +2959,10 @@ function renderVozidla() {
         <tbody>
           ${state.vozidla.length===0 ? `<tr><td colspan="10"><div class="empty-state"><div class="empty-ic">🚛</div>Žádná vozidla — přidej první.</div></td></tr>` :
           state.vozidla.map(v=>{
-            const maTacho = ['Kamion','Tahač'].includes(v.typ);
+            const maTacho = TACHO_TYPY.includes(v.typ);
             const tachStav = tachStavVozidla(v.spz), sk = servisKmStav(v);
             return `
-            <tr>
+            <tr style="cursor:pointer;" onclick="openVozidloDetail(${v.id})" title="Klikni pro historii tankování a spotřeby">
               <td><b>${v.spz}</b><div style="font-size:11.5px; margin-top:2px;">${v.doprava==='mala'?'<span class="badge ok">📰 Malá</span>':v.doprava==='velka'?'<span class="badge warn">🚛 Velká</span>':''}${v.ridicId?` <span style="color:var(--muted);">👷 ${(state.ridici.find(r=>String(r.id)===String(v.ridicId))||{}).jmeno||''}</span>`:''}</div></td><td>${v.typ}</td><td>${v.znacka}</td>
               <td>${formatDate(v.stk)} ${termBadge(v.stk)}</td>
               <td>${formatDate(v.pojistka)} ${termBadge(v.pojistka)}</td>
@@ -2921,7 +2979,7 @@ function renderVozidla() {
                 v.fixniMesicne ? `Fixní <b>${(+v.fixniMesicne).toLocaleString('cs-CZ')} Kč/měs.</b>` : ''
               ].filter(Boolean).join('<br>') || '<span style="color:var(--dim);">—</span>'}</td>
               <td style="color:var(--muted);font-size:12.5px;">${v.poznamka||'—'}</td>
-              <td style="display:flex;gap:6px;">
+              <td style="display:flex;gap:6px;" onclick="event.stopPropagation()">
                 ${+v.servisPoKm > 0 ? `<button class="btn btn-ghost btn-sm" onclick="servisProveden(${v.id})">🔧 Servis proveden</button>` : ''}
                 ${maTacho ? `<button class="btn btn-ghost btn-sm" onclick="stazenoTachoDnes(${v.id})">📡 Staženo dnes</button>` : ''}
                 <button class="btn btn-ghost btn-sm" onclick="editVozidlo(${v.id})">Upravit</button>
@@ -2937,6 +2995,7 @@ function renderVozidla() {
 }
 // Nemotorová vozidla (vlek, návěs) nemají spotřebu, nádrž ani se netankují
 const NEMOTOROVE_TYPY = ['Přípojný vlek', 'Návěs'];
+const TACHO_TYPY = ['Kamion', 'Tahač', 'Sólo'];   // vozidla s tachografem (stahování každých 90 dní)
 const jeNemotorove = (typ) => NEMOTOROVE_TYPY.includes(typ);
 
 function renderVozidloModal(v={}) {
@@ -2951,7 +3010,7 @@ function renderVozidloModal(v={}) {
             <div class="form-row"><label>SPZ *</label><input type="text" name="spz" required value="${v.spz||''}" placeholder="např. 3C1 2345"></div>
             <div class="form-row"><label>Typ *</label>
               <select name="typ" required>
-                ${['Dodávka','Kamion','Tahač','Návěs','Přípojný vlek','Jiné'].map(t=>`<option ${v.typ===t?'selected':''}>${t}</option>`).join('')}
+                ${['Dodávka','Sólo','Kamion','Tahač','Návěs','Přípojný vlek','Jiné'].map(t=>`<option ${v.typ===t?'selected':''}>${t}</option>`).join('')}
               </select>
             </div>
           </div>
@@ -2976,7 +3035,7 @@ function renderVozidloModal(v={}) {
             <div class="form-row"><label>Pojistka platná do</label><input type="date" name="pojistka" value="${v.pojistka||''}"></div>
           </div>
           <div class="form-row"><label>Dálniční známka platná do</label><input type="date" name="dalnicniZnamka" value="${v.dalnicniZnamka||''}"></div>
-          <div class="form-row" id="tachoFieldWrap" style="${['Kamion','Tahač'].includes(v.typ)?'':'display:none;'}">
+          <div class="form-row" id="tachoFieldWrap" style="${TACHO_TYPY.includes(v.typ)?'':'display:none;'}">
             <label>Poslední stažení tachografu</label>
             <input type="date" name="posledniStazeniTacho" value="${v.posledniStazeniTacho||''}">
             <span style="font-size:11.5px; color:var(--dim); margin-top:4px; display:block;">Povinné stahovat každých 90 dní. Jen u kamionu a tahače.</span>
@@ -3036,7 +3095,7 @@ function bindVozidla() {
   const typSelect = document.querySelector('#vozidloForm [name="typ"]');
   if (typSelect) {
     const prepni = () => {
-      document.getElementById('tachoFieldWrap').style.display = ['Kamion','Tahač'].includes(typSelect.value) ? '' : 'none';
+      document.getElementById('tachoFieldWrap').style.display = TACHO_TYPY.includes(typSelect.value) ? '' : 'none';
       const bez = jeNemotorove(typSelect.value);
       ['prumernaSpotreba', 'objemNadrze', 'mytoKm'].forEach(n => { const r = typSelect.form[n]?.closest('.form-row'); if (r) r.style.display = bez ? 'none' : ''; });
     };
@@ -3056,6 +3115,67 @@ function bindVozidla() {
     saveState(); closeModal('vozidloModal'); renderSection('vozidla');
   });
 }
+// Detail vozidla: historie tankování a spotřeby (klik na řádek ve Vozidlech)
+function spotrebaGraf(body, norma) {
+  if (!body.length) return '';
+  const W = 600, H = 150, pad = 26, max = Math.max(...body.map(b => b.sp), norma || 0) * 1.2 || 1;
+  const step = (W - 2 * pad) / body.length, bw = Math.min(44, step - 8), vyska = H - 40;
+  const bars = body.map((b, i) => {
+    const h = Math.max(2, b.sp / max * vyska), x = pad + i * step + (step - bw) / 2, y = H - 22 - h;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${spotrebaBarva(b.sp, norma)}"><title>${b.label}: ${b.sp.toFixed(1)} l/100 km</title></rect>
+      <text x="${(x + bw / 2).toFixed(1)}" y="${(y - 4).toFixed(1)}" font-size="10" text-anchor="middle" fill="currentColor">${b.sp.toFixed(1)}</text>
+      <text x="${(x + bw / 2).toFixed(1)}" y="${H - 7}" font-size="9" text-anchor="middle" fill="currentColor" opacity="0.6">${b.label}</text>`;
+  }).join('');
+  const yn = norma ? H - 22 - norma / max * vyska : null;
+  const nl = norma ? `<line x1="${pad}" x2="${W - pad}" y1="${yn.toFixed(1)}" y2="${yn.toFixed(1)}" stroke="currentColor" stroke-dasharray="4 3" opacity="0.55"/><text x="${W - pad}" y="${(yn - 3).toFixed(1)}" font-size="9" text-anchor="end" fill="currentColor" opacity="0.7">norma ${norma}</text>` : '';
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; color:var(--muted); margin:8px 0 14px;">${bars}${nl}</svg>`;
+}
+window.openVozidloDetail = function(id) {
+  const v = state.vozidla.find(x => x.id === id); if (!v) return;
+  const stare = document.getElementById('vozidloDetailModal'); if (stare) stare.remove();
+  const jeMajitel = state.role === 'owner';
+  const tank = state.tankovani.filter(t => t.vozidlo === v.spz).sort((a, b) => String(b.datum).localeCompare(String(a.datum)) || (+b.tach || 0) - (+a.tach || 0));
+  const sp = tankSpotreby(v.spz);
+  let kmSp = 0, lSp = 0; sp.forEach(x => { kmSp += x.km; lSp += x.litry; });
+  const prum = kmSp > 0 ? lSp / kmSp * 100 : 0, norma = +v.prumernaSpotreba || 0;
+  const litryCelkem = tank.reduce((s, t) => s + (+t.litry || 0), 0), kcCelkem = tank.reduce((s, t) => s + (+t.cenaCelkem || 0), 0);
+  const tachStav = tachStavVozidla(v.spz);
+  const krat = (iso) => { const [, m, d] = String(iso).split('-'); return `${+d}. ${+m}.`; };
+  const body = tank.filter(t => sp.has(t.id)).sort((a, b) => +a.tach - +b.tach).slice(-12).map(t => ({ sp: sp.get(t.id).spotreba, label: krat(t.datum) }));
+  const mes = {};
+  tank.forEach(t => {
+    const m = String(t.datum).slice(0, 7), o = mes[m] || (mes[m] = { l: 0, kc: 0, km: 0, lSp: 0 });
+    o.l += +t.litry || 0; o.kc += +t.cenaCelkem || 0;
+    const x = sp.get(t.id); if (x) { o.km += x.km; o.lSp += x.litry; }
+  });
+  const mesice = Object.keys(mes).sort().reverse();
+  const nazvyMesicu = ['Leden', 'Únor', 'Březen', 'Duben', 'Květen', 'Červen', 'Červenec', 'Srpen', 'Září', 'Říjen', 'Listopad', 'Prosinec'];
+  document.body.insertAdjacentHTML('beforeend', `
+    <div class="modal-overlay open" id="vozidloDetailModal"><div class="modal" style="max-width:820px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
+        <div><h2 style="margin-bottom:2px;">🚛 ${escH(v.spz)} — ${escH(v.znacka || v.typ || '')}</h2>
+          <p class="modal-sub" style="margin-bottom:0;">${escH(v.typ || '')}${v.doprava === 'mala' ? ' · malá doprava' : v.doprava === 'velka' ? ' · velká doprava' : ''}${v.ridicId ? ` · 👷 ${escH(jmenoRidiceId(v.ridicId))}` : ''}${tachStav ? ` · tachometr ${tachStav.toLocaleString('cs-CZ')} km` : ''}${v.objemNadrze ? ` · nádrž ${v.objemNadrze} l` : ''}</p></div>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('vozidloDetailModal').remove()">✕</button>
+      </div>
+      <div class="metrics" style="margin:12px 0;">
+        <div class="metric"><div class="m-label">Průměrná spotřeba</div><div class="m-value" style="color:${prum ? spotrebaBarva(prum, norma) : 'var(--white)'};">${prum ? prum.toFixed(1) + ' l/100' : '—'}</div><div class="m-delta neutral">${norma ? 'norma ' + norma + ' l/100 km' : 'norma nezadána'}${prum && norma ? ` · ${prum >= norma ? '+' : ''}${((prum - norma) / norma * 100).toFixed(0)} %` : ''}</div></div>
+        <div class="metric"><div class="m-label">Tankování</div><div class="m-value">${tank.length}</div><div class="m-delta neutral">${Math.round(litryCelkem).toLocaleString('cs-CZ')} l celkem</div></div>
+        <div class="metric"><div class="m-label">Ujeto (podle tachometru)</div><div class="m-value">${kmSp ? kmSp.toLocaleString('cs-CZ') + ' km' : '—'}</div><div class="m-delta neutral">mezi plnými tankováními</div></div>
+        ${jeMajitel ? `<div class="metric"><div class="m-label">Za palivo</div><div class="m-value">${Math.round(kcCelkem).toLocaleString('cs-CZ')} Kč</div><div class="m-delta neutral">${litryCelkem > 0 ? (kcCelkem / litryCelkem).toFixed(1) + ' Kč/l' : ''}</div></div>` : ''}
+      </div>
+      ${body.length ? `<div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase;">Spotřeba po jednotlivých tankováních (l/100 km)</div>${spotrebaGraf(body, norma)}` : `<p class="csub">${tank.length ? 'Spotřebu zatím nejde spočítat — chybí stav tachometru u tankování (stačí dvě plná tankování se stavem tachometru).' : 'U tohoto vozidla zatím není žádné tankování.'}</p>`}
+      ${mesice.length ? `
+      <div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin:6px 0 8px;">Po měsících</div>
+      <table class="data-table" style="margin-bottom:16px;"><thead><tr><th>Měsíc</th><th style="text-align:right">Litry</th><th style="text-align:right">Ujeto km</th><th style="text-align:right">Spotřeba</th>${jeMajitel ? '<th style="text-align:right">Kč</th>' : ''}</tr></thead><tbody>
+        ${mesice.map(m => { const o = mes[m], s = o.km > 0 ? o.lSp / o.km * 100 : 0; const [y, mm] = m.split('-'); return `<tr><td>${nazvyMesicu[+mm - 1]} ${y}</td><td style="text-align:right">${Math.round(o.l).toLocaleString('cs-CZ')} l</td><td style="text-align:right">${o.km ? o.km.toLocaleString('cs-CZ') : '—'}</td><td style="text-align:right">${s ? `<b style="color:${spotrebaBarva(s, norma)};">${s.toFixed(1)}</b> l/100` : '—'}</td>${jeMajitel ? `<td style="text-align:right">${Math.round(o.kc).toLocaleString('cs-CZ')} Kč</td>` : ''}</tr>`; }).join('')}
+      </tbody></table>
+      <div style="font-size:11px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin-bottom:8px;">Historie tankování</div>
+      <table class="data-table"><thead><tr><th>Datum</th><th>Řidič</th><th>Místo</th><th style="text-align:right">Litry</th><th style="text-align:right">Tachometr</th><th style="text-align:right">Ujeto</th><th style="text-align:right">Spotřeba</th>${jeMajitel ? '<th style="text-align:right">Kč</th>' : ''}</tr></thead><tbody>
+        ${tank.map(t => { const x = sp.get(t.id); return `<tr><td>${formatDate(t.datum)}</td><td>${escH(t.ridic)}</td><td>${escH(t.misto)}</td><td style="text-align:right">${t.litry} l${t.plna === false ? '<div style="font-size:11px; color:var(--dim);">nedoplněno</div>' : ''}</td><td style="text-align:right">${+t.tach > 0 ? (+t.tach).toLocaleString('cs-CZ') : '—'}</td><td style="text-align:right">${x ? x.km.toLocaleString('cs-CZ') + ' km' : '—'}</td><td style="text-align:right">${x ? `<b style="color:${spotrebaBarva(x.spotreba, norma)};">${x.spotreba.toFixed(1)}</b>` : '—'}</td>${jeMajitel ? `<td style="text-align:right">${(+t.cenaCelkem || 0).toLocaleString('cs-CZ')} Kč</td>` : ''}</tr>`; }).join('')}
+      </tbody></table>` : ''}
+    </div></div>`);
+};
+
 window.editVozidlo = function(id) {
   const v = state.vozidla.find(v=>v.id===id);
   if (!v) return;

@@ -104,9 +104,11 @@ function mapaVrstvy(scope) {
       v.push({ id: 'pns-' + r, nazev: `Trasa ${r}${c.stalyRidic ? ' — ' + c.stalyRidic : ''}`, barva: barvaTrasy(i), body: c.mapa.body, linie: c.mapa.linie, km: c.mapa.km });
     });
   }
-  if (scope === 'vse' || scope === 'linky') {
+  if (scope === 'vse' || scope.startsWith('linky')) {
+    const typStranky = scope.split(':')[1];
     (state.linky || []).forEach((l, i) => {
       if (!l.mapa || !l.mapa.body) return;
+      const tl = l.typ || 'obe'; if (typStranky && tl !== 'obe' && tl !== typStranky) return;
       v.push({ id: 'linka-' + l.id, nazev: `Linka ${l.nazev}`, barva: barvaTrasy(15 + i), body: l.mapa.body, linie: l.mapa.linie, km: l.mapa.km });
     });
   }
@@ -177,7 +179,7 @@ window.mapaOkno = async function(titul, ziskejVrstvy) {
 // Mapa libovolné jízdy: když jede po lince, vezme se její uložená trasa; jinak se místa odkud → kam dohledají a zapamatují
 window.jizdaMapa = function(id) {
   const j = state.jizdy.find(x => x.id === id); if (!j) return;
-  mapaOkno(`${j.trasaOd} → ${j.trasaDo}`, async (prog) => {
+  mapaOkno(jizdaTrasaText(j), async (prog) => {
     const linka = j.linkaId ? (state.linky || []).find(l => String(l.id) === String(j.linkaId)) : null;
     if (linka && linka.mapa && linka.mapa.body) {
       const zpet = j.smer === 'zpet';
@@ -187,15 +189,15 @@ window.jizdaMapa = function(id) {
     }
     const klic = 'vnd_mapa_v1';
     let cache = {}; try { cache = JSON.parse(localStorage.getItem(klic)) || {}; } catch {}
-    const k = j.trasaOd + '|' + j.trasaDo;
+    const k = jizdaTrasaPole(j).join('|');
     let mapa = cache[k];
     let nenalezeno = [];
     if (!mapa) {
-      const r = await mapaSestav([j.trasaOd, j.trasaDo], prog);
+      const r = await mapaSestav(jizdaTrasaPole(j), prog);
       mapa = r.mapa; nenalezeno = r.nenalezeno;
       if (mapa) { cache[k] = mapa; try { localStorage.setItem(klic, JSON.stringify(cache)); } catch {} }
     }
     if (!mapa) return { chyba: 'Nenašel jsem místa: ' + nenalezeno.join(', ') + '. Zkus přesnější název (např. s městem).', nenalezeno };
-    return { vrstvy: [{ id: 'j', nazev: `${j.trasaOd} → ${j.trasaDo}`, barva: barvaTrasy(2), body: mapa.body, linie: mapa.linie, km: mapa.km }], nenalezeno };
+    return { vrstvy: [{ id: 'j', nazev: jizdaTrasaText(j), barva: barvaTrasy(2), body: mapa.body, linie: mapa.linie, km: mapa.km }], nenalezeno };
   });
 };
