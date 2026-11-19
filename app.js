@@ -791,6 +791,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 37, datum: '2026-11-19', text: 'Appka sama pozná, že je nasazená nová verze, a ukáže lištu „Načíst novou verzi". Do té doby stačí stránku obnovit (Ctrl+F5, v mobilu zavřít a znovu otevřít aplikaci).' },
   { id: 36, datum: '2026-11-17', text: 'Jízdní dny PNS doladěny podle svátků: jede se i neděle hned po státním svátku (27. 12. 2026 po svátcích 24.–26. 12.). Kontrola: 17. 11. se nejede, 18. 11. ano; v prosinci se naposledy jede 23. 12. a pak 27. 12.; v lednu 2027 se jede 2. 1.' },
   { id: 35, datum: '2026-11-17', text: 'Jízdy (vnitro i zahraničí): místo výjezdu, vykládka (volitelně víc, tlačítko „+ Další vykládka") a cíl příjezdu; k jízdě jde přidat vlek z nabídky. Linky jdou nastavit i u zahraničních přeprav (platí pro vnitro / mimo ČR / obojí) a pevně přiřadit řidiči nebo nechat volitelné. Ve Vozidlech klik na vozidlo ukáže historii tankování a spotřeby (graf, měsíce). Nový druh vozidla Sólo.' },
   { id: 34, datum: '2026-11-17', text: 'Opraveny jízdní dny malé dopravy PNS: jezdí se vždy až po půlnoci daného dne, tedy každý den kromě neděle a státních svátků (sobota se jede). Řidiči už nevidí STK, pojistky ani upozornění k vozidlům a řidičům.' },
@@ -5066,6 +5067,32 @@ function downloadFile(name, mime, data) {
 
 // Auto-login if already logged in (must run after SECTIONS is defined above)
 if (state.role) showApp();
+
+// Nová verze systému: appka běží v jedné záložce i celé dny, takže si nové nasazení sama nevšimne. Jednou za 5 minut (a po návratu do záložky)
+// porovná ETag app.js; při změně ukáže lištu „Načíst novou verzi" (nic samo nepřekreslí, ať se nesmaže rozepsané).
+(function () {
+  let znamy = null, ukazano = false;
+  async function zkontroluj() {
+    if (ukazano || location.protocol === 'file:') return;
+    try {
+      const r = await fetch('/app.js', { method: 'HEAD', cache: 'no-store' });
+      const e = r.headers.get('etag') || r.headers.get('last-modified');
+      if (!e) return;
+      if (znamy === null) { znamy = e; return; }
+      if (e !== znamy) {
+        ukazano = true;
+        const lista = document.createElement('div');
+        lista.style.cssText = 'position:fixed; left:50%; bottom:18px; transform:translateX(-50%); z-index:99999; background:#4f46e5; color:#fff; padding:10px 16px; border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,0.4); font-size:14px; display:flex; gap:12px; align-items:center;';
+        lista.innerHTML = '🆕 Je k dispozici nová verze systému <button style="background:#fff; color:#4f46e5; border:none; border-radius:8px; padding:5px 12px; font-weight:700; cursor:pointer;">Načíst novou verzi</button>';
+        lista.querySelector('button').addEventListener('click', () => location.reload());
+        document.body.appendChild(lista);
+      }
+    } catch (e) { /* offline — zkusí se příště */ }
+  }
+  zkontroluj();
+  setInterval(zkontroluj, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) zkontroluj(); });
+})();
 
 // PWA — zaregistruje service worker, pokud to prohlížeč umí (na file:// se přeskočí)
 if ('serviceWorker' in navigator) {
