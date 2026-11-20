@@ -319,6 +319,53 @@ const SECTIONS = {
 // ==========================================================
 // DASHBOARD
 // ==========================================================
+// ☀️ Dnes v kostce — uvítací karta majitele: co se dnes jede, kolik se tento měsíc najelo, řidič měsíce, nejúspornější auto, milník v km
+function renderDnesKostce() {
+  const dnes = new Date(), iso = toISO(dnes), mesic = iso.slice(0, 7);
+  const hod = dnes.getHours();
+  const pozdrav = hod < 10 ? 'Dobré ráno' : hod < 18 ? 'Dobrý den' : 'Dobrý večer';
+  const dny = ['neděle', 'pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota'];
+  const kmRidic = {};
+  let kmMesic = 0, kmCelkem = 0, jizdDnes = 0, kmDnes = 0;
+  state.jizdy.forEach(j => {
+    const km = +j.km || 0; kmCelkem += km;
+    if (String(j.datum).startsWith(mesic)) { kmMesic += km; kmRidic[j.driverId] = (kmRidic[j.driverId] || 0) + km; }
+    if (j.datum === iso) { jizdDnes++; kmDnes += km; }
+  });
+  state.hlaseniObjizdek.forEach(h => {
+    const km = +h.kmDen || 0; kmCelkem += km;
+    if (String(h.datum).startsWith(mesic)) { kmMesic += km; kmRidic[h.driverId] = (kmRidic[h.driverId] || 0) + km; }
+    if (h.datum === iso) kmDnes += km;
+  });
+  const top = Object.entries(kmRidic).sort((a, b) => b[1] - a[1])[0];
+  const topJmeno = top ? jmenoRidiceId(top[0]) : '';
+  const litryMesic = state.tankovani.filter(t => String(t.datum).startsWith(mesic)).reduce((s, t) => s + (+t.litry || 0), 0);
+  const uspornost = state.vozidla.map(v => ({ v, s: vozidloStatistika(v, mesic).skutecnaSpotreba })).filter(x => x.s > 0).sort((a, b) => a.s - b.s)[0];
+  const jede = isDrivingDay(iso);
+  const tras = PNS_ROUTES.filter(r => !efektivniTrasaDen(r, iso).nejelo).length;
+  const termin = (state.terminy || []).map(t => ({ t, ...terminStav(t) })).filter(x => x.due).sort((a, b) => a.dny - b.dny)[0];
+  const milnik = (Math.floor(kmCelkem / 10000) + 1) * 10000, predchozi = milnik - 10000;
+  const procento = Math.min(100, Math.max(0, (kmCelkem - predchozi) / 10000 * 100));
+  const kolemZeme = kmCelkem / 40075;
+  const chip = (ikona, text) => `<div style="flex:1 1 210px; background:rgba(255,255,255,0.07); border-radius:12px; padding:10px 14px; font-size:13px; line-height:1.45;"><div style="font-size:20px; margin-bottom:2px;">${ikona}</div>${text}</div>`;
+  return `
+    <div class="card-panel" style="margin-bottom:20px; background:linear-gradient(135deg, rgba(99,102,241,0.28), rgba(16,185,129,0.16)); border-color:rgba(99,102,241,0.5);">
+      <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+        <div><div style="font-size:22px; font-weight:800;">${pozdrav}, Jardo! ☀️</div>
+          <div style="font-size:13px; color:var(--muted);">${dny[dnes.getDay()]} ${dnes.getDate()}. ${dnes.getMonth() + 1}. ${dnes.getFullYear()} · ${jede ? `dnes se jede, ${tras} z ${PNS_ROUTES.length} tras PNS` : `dnes se PNS nejede (${dnyNejedeDuvod(iso)})`}</div></div>
+        ${jizdDnes || kmDnes ? `<div style="font-size:13px;">Dnes zapsáno: <b>${kmDnes.toLocaleString('cs-CZ')} km</b>${jizdDnes ? ` · ${jizdDnes} ${jizdDnes === 1 ? 'jízda' : jizdDnes < 5 ? 'jízdy' : 'jízd'}` : ''} 👍</div>` : ''}
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        ${chip('🚚', `Tento měsíc najeto <b style="font-size:17px;">${Math.round(kmMesic).toLocaleString('cs-CZ')} km</b>${litryMesic ? `<br>natankováno ${Math.round(litryMesic).toLocaleString('cs-CZ')} l` : ''}`)}
+        ${top ? chip('🏆', `Řidič měsíce: <b>${escH(topJmeno)}</b><br>${Math.round(top[1]).toLocaleString('cs-CZ')} km`) : ''}
+        ${uspornost ? chip('🌿', `Nejúspornější auto: <b>${escH(uspornost.v.spz)}</b><br>${uspornost.s.toFixed(1)} l/100 km`) : ''}
+        ${termin ? chip('⏰', `Nejbližší termín:<br><b>${escH(termin.t.nazev)}</b><br>${termin.dny < 0 ? `po termínu o ${-termin.dny} dní` : termin.dny === 0 ? 'dnes' : `za ${termin.dny} dní`}`) : ''}
+      </div>
+      <div style="margin-top:14px; font-size:12.5px; color:var(--muted);">🌍 Celkem zapsáno <b style="color:var(--white);">${Math.round(kmCelkem).toLocaleString('cs-CZ')} km</b> — to je ${kolemZeme.toFixed(2).replace('.', ',')}× kolem Země. Do milníku ${milnik.toLocaleString('cs-CZ')} km zbývá ${Math.round(milnik - kmCelkem).toLocaleString('cs-CZ')} km.</div>
+      <div style="margin-top:6px; height:8px; border-radius:99px; background:rgba(255,255,255,0.1); overflow:hidden;"><div style="width:${procento.toFixed(1)}%; height:100%; background:linear-gradient(90deg,#6366f1,#10b981);"></div></div>
+    </div>`;
+}
+
 function renderDashboard() {
   const isOwner = state.role === 'owner';
   const isDispecer = state.role === 'dispecer';
@@ -357,6 +404,8 @@ function renderDashboard() {
       <h3>🧭 Zadáváš data za řidiče</h3>
       <p class="csub">Přes „+ Jízda", „+ Tankování" a „📣 Km / objížďka" (nahoře) i přes stránky Evidence jízd a Tankování zapisuješ záznam vždy za konkrétního řidiče — vyber ho v poli <b>Řidič</b> ve formuláři (nabízí všechny, ne jen tebe). Finance, ceny a náklady nevidíš ani nezadáváš — to zůstává jen pro majitele.</p>
     </div>` : ''}
+
+    ${isOwner ? renderDnesKostce() : ''}
 
     ${isOwner ? renderTerminyKarta() : ''}
 
@@ -791,6 +840,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 38, datum: '2026-11-20', text: 'Kompletní přehled: nahoře nová karta „Dnes v kostce" — pozdrav, jede se dnes PNS, kolik se tento měsíc najelo, řidič měsíce 🏆, nejúspornější auto, nejbližší termín a celkové km (kolikrát kolem Země) s milníkem.' },
   { id: 37, datum: '2026-11-19', text: 'Appka sama pozná, že je nasazená nová verze, a ukáže lištu „Načíst novou verzi". Do té doby stačí stránku obnovit (Ctrl+F5, v mobilu zavřít a znovu otevřít aplikaci).' },
   { id: 36, datum: '2026-11-17', text: 'Jízdní dny PNS doladěny podle svátků: jede se i neděle hned po státním svátku (27. 12. 2026 po svátcích 24.–26. 12.). Kontrola: 17. 11. se nejede, 18. 11. ano; v prosinci se naposledy jede 23. 12. a pak 27. 12.; v lednu 2027 se jede 2. 1.' },
   { id: 35, datum: '2026-11-17', text: 'Jízdy (vnitro i zahraničí): místo výjezdu, vykládka (volitelně víc, tlačítko „+ Další vykládka") a cíl příjezdu; k jízdě jde přidat vlek z nabídky. Linky jdou nastavit i u zahraničních přeprav (platí pro vnitro / mimo ČR / obojí) a pevně přiřadit řidiči nebo nechat volitelné. Ve Vozidlech klik na vozidlo ukáže historii tankování a spotřeby (graf, měsíce). Nový druh vozidla Sólo.' },
