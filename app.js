@@ -840,6 +840,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 39, datum: '2026-11-23', text: 'Nápověda v menu: když najedeš myší na položku vlevo, ukáže se bublina, o čem stránka je a jak na ni.' },
   { id: 38, datum: '2026-11-20', text: 'Kompletní přehled: nahoře nová karta „Dnes v kostce" — pozdrav, jede se dnes PNS, kolik se tento měsíc najelo, řidič měsíce 🏆, nejúspornější auto, nejbližší termín a celkové km (kolikrát kolem Země) s milníkem.' },
   { id: 37, datum: '2026-11-19', text: 'Appka sama pozná, že je nasazená nová verze, a ukáže lištu „Načíst novou verzi". Do té doby stačí stránku obnovit (Ctrl+F5, v mobilu zavřít a znovu otevřít aplikaci).' },
   { id: 36, datum: '2026-11-17', text: 'Jízdní dny PNS doladěny podle svátků: jede se i neděle hned po státním svátku (27. 12. 2026 po svátcích 24.–26. 12.). Kontrola: 17. 11. se nejede, 18. 11. ano; v prosinci se naposledy jede 23. 12. a pak 27. 12.; v lednu 2027 se jede 2. 1.' },
@@ -5117,6 +5118,44 @@ function downloadFile(name, mime, data) {
 
 // Auto-login if already logged in (must run after SECTIONS is defined above)
 if (state.role) showApp();
+
+// Nápověda v menu: po najetí myší na položku se vedle ní ukáže bublina, o čem stránka je a jak na ni
+const NAPOVEDA_MENU = {
+  'dashboard': ['Kompletní přehled', 'Hlavní stránka: dnešní shrnutí, termíny, cashflow a ziskovost, počty jízd, mapa tras, hlášení od řidičů a upozornění.', 'Stačí ji otevřít — čísla se doplňují sama, jak se zapisuje. Klik na řádek přehledu otevře detail.'],
+  'jizdy': ['Evidence jízd', 'Všechny jízdy velké i malé dopravy s filtrem podle druhu dopravy a měsíce.', 'Nová jízda: „+ Nová jízda" nahoře. U jízdy 💰 Finance zadá fakturaci a náklady, 🗺️ ukáže mapu trasy.'],
+  'tankovani': ['Tankování', 'Záznamy o tankování: litry, cena, stav tachometru a automaticky spočítaná spotřeba.', '„+ Nové tankování", zadej stav tachometru a nech zaškrtnuté „do plné nádrže" — spotřeba se spočítá sama.'],
+  'vozidla': ['Vozidla', 'Vozový park: STK, pojistky, tachograf, sazby nákladů, stav tachometru a servis podle km.', 'Klik na řádek vozidla ukáže historii tankování a spotřeby. „+ Nové vozidlo" přidá další, „Upravit" změní údaje.'],
+  'ridici': ['Řidiči', 'Seznam řidičů: telefon, karty, zařazení (malá / velká doprava), denní náklad a PIN.', '„Upravit" změní údaje a PIN, „📊 Přehled" ukáže výkon řidiče, „🔑 PIN majitele" změní Tvůj PIN.'],
+  'zakazky': ['Zakázky', 'Zakázky od klientů se stavem: naplánováno, probíhá, dokončeno.', '„+ Nová zakázka"; dokončené se objeví v Podkladech k fakturaci.'],
+  'velka-cz': ['Velká doprava (ČR)', 'Vnitrostátní jízdy se ziskovostí a exportem, plus karta Linky (pevné trasy, např. GW Jihotrans).', '„+ Nová jízda"; v kartě Linky nastavíš pevnou linku a přiřadíš ji řidiči.'],
+  'velka-eu': ['Velká doprava EU', 'Zahraniční jízdy se ziskovostí a exportem, plus karta Linky pro mezinárodní trasy.', '„+ Nová jízda"; vykládek můžeš přidat víc tlačítkem „+ Další vykládka".'],
+  'mala-doprava': ['Malá doprava (PNS)', '15 tras PNS: kalendář měsíce, ceny, odměny, objížďky, mapa tras a export k fakturaci.', 'Klik na číslo trasy nastaví cenu a zastávky; klik na den v kalendáři zapíše výjimku (objížďka, zástup, nejelo).'],
+  'terminy': ['Hlídač termínů', 'Termíny, které nesmíš zapomenout (fakturace PNS, jednorázové akce), s upozorněním předem.', '„+ Nový termín"; hotovo je „✓ Splněno" (měsíční termín se posune na další měsíc).'],
+  'reporty': ['Reporty', 'Ziskovost a nákladovost vozidel, skutečná spotřeba proti normě.', 'Vyber měsíc nahoře, export do CSV je tlačítkem vedle.'],
+  'fakturace': ['Podklady k fakturaci', 'Dokončené zakázky připravené k fakturaci.', 'Zkontroluj částky a vyfakturuj; export podle potřeby.']
+};
+const NAPOVEDA_UKAZKA = ['Ukázka rozhraní', 'Tahle část je zatím jen náhled budoucí funkce a nefunguje.', 'Zatím ji nepotřebuješ — dáme vědět, až bude hotová.'];
+(function () {
+  if (!window.matchMedia || !window.matchMedia('(hover: hover)').matches) return;   // v mobilu bez myši se nezobrazuje
+  let bublina = null, casovac = null;
+  const skryj = () => { clearTimeout(casovac); if (bublina) bublina.style.display = 'none'; };
+  document.addEventListener('mouseover', (e) => {
+    const it = e.target.closest && e.target.closest('.nav-item[data-section]');
+    if (!it) return;
+    clearTimeout(casovac);
+    casovac = setTimeout(() => {
+      const t = NAPOVEDA_MENU[it.dataset.section] || NAPOVEDA_UKAZKA;
+      if (!bublina) { bublina = document.createElement('div'); bublina.id = 'menuNapoveda'; document.body.appendChild(bublina); }
+      bublina.innerHTML = `<b>${escH(t[0])}</b><p>${escH(t[1])}</p><p class="jak">💡 ${escH(t[2])}</p>`;
+      bublina.style.display = 'block';
+      const r = it.getBoundingClientRect(), vyska = bublina.offsetHeight;
+      bublina.style.left = Math.round(r.right + 12) + 'px';
+      bublina.style.top = Math.round(Math.max(8, Math.min(r.top - 4, window.innerHeight - vyska - 8))) + 'px';
+    }, 350);
+  });
+  document.addEventListener('mouseout', (e) => { const it = e.target.closest && e.target.closest('.nav-item[data-section]'); if (it && !it.contains(e.relatedTarget)) skryj(); });
+  document.addEventListener('click', skryj);
+})();
 
 // Nová verze systému: appka běží v jedné záložce i celé dny, takže si nové nasazení sama nevšimne. Jednou za 5 minut (a po návratu do záložky)
 // porovná ETag app.js; při změně ukáže lištu „Načíst novou verzi" (nic samo nepřekreslí, ať se nesmaže rozepsané).
