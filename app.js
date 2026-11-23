@@ -412,7 +412,7 @@ function renderDashboard() {
     ${isOwner ? renderBusinessKarta() : ''}
 
     <div class="metrics">
-      <div class="metric"><div class="m-label">Najeté km</div><div class="m-value">${kmCelkem.toLocaleString('cs-CZ')}</div><div class="m-delta">▲ celkem</div></div>
+      <div class="metric"><div class="m-label">Najeté km</div><div class="m-value">${kmCelkem.toLocaleString('cs-CZ')}</div><div class="m-delta">${isOwner || !eonRidic ? '▲ celkem' : ''}</div></div>
       ${renderTileJizd()}
       ${!isOwner ? `
       <div class="metric"><div class="m-label">${mojeTrasy.length + (eonRidic ? 1 : 0) > 1 ? 'Tvoje trasy' : 'Tvoje trasa'}</div><div class="m-value">${mojeTrasy.length || eonRidic ? mojeTrasy.concat(eonRidic ? ['20001+ (Eon)'] : []).join(', ') : '—'}</div><div class="m-delta neutral">${mojeTrasy.length || eonRidic ? 'Malá doprava' : 'zatím nepřiřazena'}</div></div>
@@ -421,7 +421,7 @@ function renderDashboard() {
       <div class="metric"><div class="m-label">Vozidla</div><div class="m-value">${state.vozidla.length}</div><div class="m-delta neutral">v systému</div></div>
       <div class="metric"><div class="m-label">Řidiči</div><div class="m-value">${state.ridici.length}</div><div class="m-delta neutral">v systému</div></div>
       ` : ''}
-      <div class="metric"><div class="m-label">Natankováno litrů</div><div class="m-value">${litryCelkem.toLocaleString('cs-CZ')}</div><div class="m-delta neutral">celkem</div></div>
+      <div class="metric"><div class="m-label">Natankováno litrů</div><div class="m-value">${litryCelkem.toLocaleString('cs-CZ')}</div><div class="m-delta neutral">${isOwner || !eonRidic ? 'celkem' : ''}</div></div>
       ${isOwner ? `<div class="metric"><div class="m-label">Náklady PHM</div><div class="m-value">${nakladyPHM.toLocaleString('cs-CZ')} Kč</div><div class="m-delta neutral">celkem</div></div>` : ''}
     </div>
 
@@ -637,9 +637,11 @@ function renderTileJizd() {
   const mapa = jizdyMesiceMapa(null);
   const celkem = (k) => Object.values(mapa).reduce((s, m) => s + m[k], 0);
   const cur = mapa[aktualni] || { cz: 0, eu: 0, eon: 0 };
+  const jenMesic = state.role !== 'owner' && !!(sync.me && sync.me.eonRidic);   // řidička Eon vidí jen aktuální měsíc, ne součty za celé období
+  const celk = (t) => jenMesic ? '' : ' · celkem ' + t;
   const dlazdice = (nazev, hodnota, delta) => `<div class="metric"><div class="m-label">${nazev}</div><div class="m-value">${hodnota}</div><div class="m-delta neutral">${delta}</div></div>`;
-  let html = dlazdice('🚚 Velká doprava vnitro (ČR)', cur.cz, `tento měsíc · celkem ${celkem('cz')}`)
-    + dlazdice('🌍 Velká doprava mimo ČR', cur.eu, `tento měsíc · celkem ${celkem('eu')}`);
+  let html = dlazdice('🚚 Velká doprava vnitro (ČR)', cur.cz, `tento měsíc${celk(celkem('cz'))}`)
+    + dlazdice('🌍 Velká doprava mimo ČR', cur.eu, `tento měsíc${celk(celkem('eu'))}`);
   // PNS: jízdy tras (a odjeté dny) od spuštění provozu
   const pnsAkt = pnsDnyMesice(aktualni, null);
   if (pnsAkt) {
@@ -648,9 +650,9 @@ function renderTileJizd() {
       const p = pnsDnyMesice(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, null);
       celkemPns += p ? p.jizdy : 0;
     }
-    html += dlazdice('📰 Malá doprava PNS', pnsAkt.jizdy, `${pnsAkt.dny} dní tento měsíc · celkem ${celkemPns} jízd`);
+    html += dlazdice('📰 Malá doprava PNS', pnsAkt.jizdy, `${pnsAkt.dny} dní tento měsíc${celk(celkemPns + ' jízd')}`);
   }
-  if (state.role === 'owner' || (sync.me && sync.me.eonRidic)) html += dlazdice('🚐 Trasa Eon', cur.eon, `dní tento měsíc · celkem ${celkem('eon')}`);
+  if (state.role === 'owner' || (sync.me && sync.me.eonRidic)) html += dlazdice('🚐 Trasa Eon', cur.eon, `dní tento měsíc${celk(celkem('eon'))}`);
   return html;
 }
 
@@ -840,6 +842,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 40, datum: '2026-11-23', text: 'Řidička Eon vidí v profilu už jen aktuální měsíc: odjeté jízdy a výdělek za měsíc po dnech; součty za celé období jí zmizely.' },
   { id: 39, datum: '2026-11-23', text: 'Nápověda v menu: když najedeš myší na položku vlevo, ukáže se bublina, o čem stránka je a jak na ni.' },
   { id: 38, datum: '2026-11-20', text: 'Kompletní přehled: nahoře nová karta „Dnes v kostce" — pozdrav, jede se dnes PNS, kolik se tento měsíc najelo, řidič měsíce 🏆, nejúspornější auto, nejbližší termín a celkové km (kolikrát kolem Země) s milníkem.' },
   { id: 37, datum: '2026-11-19', text: 'Appka sama pozná, že je nasazená nová verze, a ukáže lištu „Načíst novou verzi". Do té doby stačí stránku obnovit (Ctrl+F5, v mobilu zavřít a znovu otevřít aplikaci).' },
@@ -3898,10 +3901,8 @@ function eonCastkaMesice(year, month) { return eonPocetDnuMesice(year, month) * 
 // Přehled výdělku řidičky Eon (její čistých 200 Kč za den): jednotlivé dny zvoleného měsíce a součet za všechny měsíce — žádné příjmy od klienta
 function eonVydelekHtml(year, month) {
   const dny = Object.keys(eonDnyMesice(year, month)).sort();
-  const celkemDnu = Object.values(state.eonDny || {}).reduce((s, r) => s + Object.keys((r && r.dny) || {}).length, 0);
   const chip = (iso) => `<span style="display:inline-block; margin:3px 6px 3px 0; padding:3px 9px; border-radius:999px; background:rgba(16,185,129,0.14); font-size:12px;">${formatDate(iso)} · <b>${EON_KC_ZA_DEN} Kč</b></span>`;
-  return `<div style="margin-top:10px;">${dny.map(chip).join('') || '<span style="color:var(--dim); font-size:12.5px;">V tomto měsíci zatím žádný zapsaný den.</span>'}</div>
-    <div style="font-size:13px; margin-top:8px; color:var(--muted);">Celkem vydělaná za všechny měsíce: <b style="color:var(--green);">${kcFmt(celkemDnu * EON_KC_ZA_DEN)}</b> (${celkemDnu} ${celkemDnu === 1 ? 'den' : celkemDnu < 5 && celkemDnu > 0 ? 'dny' : 'dní'})</div>`;
+  return `<div style="margin-top:10px;">${dny.map(chip).join('') || '<span style="color:var(--dim); font-size:12.5px;">V tomto měsíci zatím žádný zapsaný den.</span>'}</div>`;
 }
 function eonRidiciJmena() { return state.ridici.filter(r => r.eon).map(r => r.jmeno); }
 function eonDashMesic() {
