@@ -366,6 +366,62 @@ function renderDnesKostce() {
     </div>`;
 }
 
+// 📝 Kdo ještě nezapsal km — posledních 7 jízdních dnů PNS (bez dneška): které trasy nemají hlášení a komu to připomenout přes WhatsApp
+function chybejiciZapisy() {
+  const dny = [];
+  const d = new Date();
+  for (let i = 1; i <= 21 && dny.length < 7; i++) {
+    const iso = toISO(new Date(d.getFullYear(), d.getMonth(), d.getDate() - i));
+    if (iso >= PROVOZ_OD && isDrivingDay(iso)) dny.push(iso);
+  }
+  const podle = {};
+  let ocekavano = 0, zapsano = 0;
+  dny.forEach(iso => PNS_ROUTES.forEach(route => {
+    const eff = efektivniTrasaDen(route, iso);
+    if (eff.nejelo || !eff.ridic) return;
+    ocekavano++;
+    if (eff.kmSkutecne || state.hlaseniObjizdek.some(h => h.datum === iso && String(h.trasa) === route)) { zapsano++; return; }
+    const o = podle[eff.ridic] || (podle[eff.ridic] = { jmeno: eff.ridic, trasy: new Set(), dny: new Set() });
+    o.trasy.add(route); o.dny.add(iso);
+  }));
+  const seznam = Object.values(podle).sort((a, b) => b.dny.size - a.dny.size || a.jmeno.localeCompare(b.jmeno, 'cs'));
+  return { dny, seznam, ocekavano, zapsano };
+}
+const datumKratce = (iso) => { const [, m, d] = iso.split('-'); return `${+d}. ${+m}.`; };
+function textPripominky(o) {
+  return `Ahoj ${o.jmeno.split(' ')[0]}, prosím doplň v aplikaci najeté km (trasa ${[...o.trasy].join(', ')}) za dny: ${[...o.dny].sort().map(datumKratce).join(', ')} Otevři app.autodoprava-vondrasek.eu a klikni na „Km / objížďka". Díky!`;
+}
+// číslo pro wa.me: jen číslice, české devítimístné doplní o 420
+function telefonProWa(jmeno) {
+  const r = state.ridici.find(x => x.jmeno === jmeno);
+  let t = String((r && r.telefon) || '').replace(/\D/g, '').replace(/^00/, '');
+  if (t.length === 9) t = '420' + t;
+  return t.length >= 11 && t.length <= 15 ? t : '';
+}
+window.kopirovatPripominku = function(i) {
+  const o = chybejiciZapisy().seznam[i]; if (!o) return;
+  const text = textPripominky(o);
+  (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => alert('Text připomínky je zkopírovaný — vlož ho do zprávy řidiči.')).catch(() => prompt('Zkopíruj text připomínky:', text));
+};
+function renderChybejiciZapisy() {
+  const { dny, seznam, ocekavano, zapsano } = chybejiciZapisy();
+  if (!dny.length || !ocekavano) return '';
+  const pct = Math.round(zapsano / ocekavano * 100);
+  const radky = seznam.map((o, i) => {
+    const tel = telefonProWa(o.jmeno), text = textPripominky(o);
+    return `<tr><td><b>${escH(o.jmeno)}</b><div style="font-size:11.5px; color:var(--dim);">trasa ${[...o.trasy].join(', ')}</div></td>
+      <td style="text-align:right"><b style="color:var(--amber);">${o.dny.size}</b></td><td style="font-size:12.5px; color:var(--muted);">${[...o.dny].sort().map(datumKratce).join(', ')}</td>
+      <td style="text-align:right; white-space:nowrap;">${tel ? `<a class="btn btn-ghost btn-sm" href="https://wa.me/${tel}?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">📱 Připomenout</a>` : `<button class="btn btn-ghost btn-sm" title="U řidiče chybí telefon" onclick="kopirovatPripominku(${i})">📋 Kopírovat text</button>`}</td></tr>`;
+  }).join('');
+  return `
+    <div class="card-panel" style="margin-bottom:20px;">
+      <h3>📝 Kdo ještě nezapsal km</h3>
+      <p class="csub">Posledních ${dny.length} jízdních dnů PNS (bez dneška): zapsáno <b style="color:var(--white);">${zapsano} z ${ocekavano}</b> (${pct} %). Tlačítko „Připomenout" otevře WhatsApp s hotovou zprávou — odešleš ji sám.</p>
+      <div style="height:8px; border-radius:99px; background:rgba(255,255,255,0.1); overflow:hidden; margin-bottom:12px;"><div style="width:${pct}%; height:100%; background:linear-gradient(90deg,#f59e0b,#10b981);"></div></div>
+      ${seznam.length ? `<table class="data-table"><thead><tr><th>Řidič</th><th style="text-align:right">Chybí dnů</th><th>Které dny</th><th></th></tr></thead><tbody>${radky}</tbody></table>` : '<div class="empty-state"><div class="empty-ic">🎉</div>Všichni mají zapsáno. Paráda!</div>'}
+    </div>`;
+}
+
 function renderDashboard() {
   const isOwner = state.role === 'owner';
   const isDispecer = state.role === 'dispecer';
@@ -435,6 +491,8 @@ function renderDashboard() {
 
     ${isOwner || isDispecer ? renderDnesekMalaDoprava() : ''}
     ${isOwner || isDispecer ? renderHlaseniObjizdekOwnerCard() : renderHlaseniObjizdekDriverCard()}
+    ${isOwner ? renderChybejiciZapisy() : ''}
+
     ${isOwner || isDispecer ? renderIncidentyKarta() : ''}
 
     ${renderJizdyPoMesicich(isOwner || isDispecer)}
@@ -842,6 +900,7 @@ function renderPrehledProvozu() {
 // Při každé nové funkci přidej nahoru nový záznam: vyšší id, datum RRRR-MM-DD, jedna krátká věta.
 // ==========================================================
 const UPDATES = [
+  { id: 41, datum: '2026-11-25', text: 'Kompletní přehled: nová karta „Kdo ještě nezapsal km" — za posledních 7 jízdních dnů PNS ukáže, komu chybí zápis a které dny, a tlačítkem „Připomenout" otevře WhatsApp s hotovou zprávou řidiči.' },
   { id: 40, datum: '2026-11-23', text: 'Řidička Eon vidí v profilu už jen aktuální měsíc: odjeté jízdy a výdělek za měsíc po dnech; součty za celé období jí zmizely.' },
   { id: 39, datum: '2026-11-23', text: 'Nápověda v menu: když najedeš myší na položku vlevo, ukáže se bublina, o čem stránka je a jak na ni.' },
   { id: 38, datum: '2026-11-20', text: 'Kompletní přehled: nahoře nová karta „Dnes v kostce" — pozdrav, jede se dnes PNS, kolik se tento měsíc najelo, řidič měsíce 🏆, nejúspornější auto, nejbližší termín a celkové km (kolikrát kolem Země) s milníkem.' },
